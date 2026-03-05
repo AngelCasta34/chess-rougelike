@@ -1,35 +1,58 @@
 import CardList from "../cards/CardList.js";
 
+function asArray(list) {
+  if (Array.isArray(list)) return list;
+
+  if (list && Array.isArray(list.cards)) return list.cards;
+
+  if (list && typeof list === "object") return Object.values(list);
+
+  return [];
+}
+
 export default class LootTable {
-  constructor(rng = Math.random) {
-    this.rng = rng;
-  }
+  constructor() {}
 
-  weightedPick(pool) {
-    const total = pool.reduce((sum, c) => sum + (c.weight ?? 1), 0);
-    let roll = this.rng() * total;
+  drawOptions(count = 3) {
+    const allCards = asArray(CardList).filter(Boolean);
 
-    for (const c of pool) {
-      roll -= (c.weight ?? 1);
-      if (roll <= 0) return c;
-    }
-    return pool[pool.length - 1];
-  }
-
-  // Returns N unique cards
-  drawOptions(n = 3) {
-    const options = [];
-    const pool = [...CardList];
-
-    while (options.length < n && pool.length > 0) {
-      const pick = this.weightedPick(pool);
-      options.push(pick);
-
-      // remove to keep unique choices
-      const idx = pool.findIndex((c) => c.id === pick.id);
-      if (idx >= 0) pool.splice(idx, 1);
+    if (allCards.length === 0) {
+      console.warn("LootTable: No cards found in CardList export.");
+      return [];
     }
 
-    return options;
+    // simple weighted draw by rarity
+    const rarityWeights = {
+      Common: 55,
+      Uncommon: 30,
+      Rare: 15,
+      Epic: 6,
+      Legendary: 1,
+    };
+
+    // build weighted pool
+    const pool = [];
+    for (const c of allCards) {
+      const w = rarityWeights[c.rarity] ?? 10;
+      for (let i = 0; i < w; i++) pool.push(c);
+    }
+
+    const picks = [];
+    const used = new Set();
+
+    // pick unique cards when possible
+    let attempts = 0;
+    while (picks.length < count && attempts < 200) {
+      attempts++;
+      const card = pool[Math.floor(Math.random() * pool.length)];
+      if (!card || !card.id) continue;
+
+      if (used.has(card.id) && allCards.length >= count) continue;
+
+      used.add(card.id);
+      picks.push(card);
+    }
+
+    return picks;
   }
 }

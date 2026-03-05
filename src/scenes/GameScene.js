@@ -2,6 +2,8 @@ import Phaser from "phaser";
 import TurnManager from "../systems/TurnManager.js";
 import LootTable from "../generators/LootTable.js";
 import CardSystem from "../cards/CardSystem.js";
+import { EncounterTemplates } from "../systems/EncounterTemplates.js";
+import Board from "../board/Board.js";
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -9,15 +11,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    // --- Board settings ---
+    //Board settings 
     this.gridSize = 9;
     this.tileSize = 55;
     this.gridOrigin = { x: 120, y: 80 };
 
-    this.tiles = [];
-    this.pieces = {}; // "x,y" -> piece object
-    this.enemies = [];
-
+    //Run/turn state 
     this.isPlayerTurn = false;
     this.movesRemaining = 0;
 
@@ -32,7 +31,7 @@ export default class GameScene extends Phaser.Scene {
     // defense stat
     this.shield = 0;
 
-    // --- Deckbuilder state ---
+    //Deckbuilder state
     this.maxEnergy = 3;
     this.energy = this.maxEnergy;
 
@@ -40,7 +39,7 @@ export default class GameScene extends Phaser.Scene {
     this.discardPile = [];
     this.hand = [];
 
-    // starter deck for the run (deck grows when you pick rewards)
+    // starter deck for the run 
     this.runDeck = ["dash", "dash", "shield", "heal", "dash"];
 
     // systems
@@ -48,37 +47,29 @@ export default class GameScene extends Phaser.Scene {
     this.lootTable = new LootTable();
     this.cardSystem = new CardSystem(this);
 
-    // --- Create board tiles ---
-    for (let y = 0; y < this.gridSize; y++) {
-      this.tiles[y] = [];
-      for (let x = 0; x < this.gridSize; x++) {
-        const worldX = this.gridOrigin.x + x * this.tileSize;
-        const worldY = this.gridOrigin.y + y * this.tileSize;
+    // Board 
+    this.board = new Board(this, {
+      gridSize: this.gridSize,
+      tileSize: this.tileSize,
+      origin: this.gridOrigin,
+    });
 
-        const color = (x + y) % 2 === 0 ? 0x2f2f2f : 0x3a3a3a;
+    this.board.createTiles();
 
-        const tile = this.add
-          .rectangle(worldX, worldY, this.tileSize - 4, this.tileSize - 4, color)
-          .setOrigin(0)
-          .setStrokeStyle(2, 0x000000)
-          .setInteractive();
-
-        tile.gridPos = { x, y };
-        this.tiles[y][x] = tile;
-      }
-    }
-
-    // --- Spawn King (center-bottom) ---
+    // Spawn King 
     const kx = Math.floor(this.gridSize / 2);
     const ky = this.gridSize - 1;
 
-    this.king = this.spawnPiece("KING", kx, ky, 0x4aa3ff);
+    this.king = this.board.spawnPiece("KING", kx, ky, 0x4aa3ff);
     this.king.hp = 3;
 
-    // --- Spawn enemies for Floor 1 ---
+    // generate walls BEFORE spawning encounter
+    this.board.generateWalls(this.floor, kx, ky);
+
+    // Spawn enemies 
     this.spawnEncounter();
 
-    // --- UI ---
+    // UI 
     this.add.text(20, 20, "Click green tiles to move the King", {
       fontSize: "18px",
       color: "#ffffff",
@@ -137,7 +128,7 @@ export default class GameScene extends Phaser.Scene {
     this.endTurnBtn.on("pointerdown", () => {
       if (this.isGameOver || this.inReward) return;
 
-      // discard remaining hand at end of turn (deckbuilder feel)
+      // discard remaining hand at end of turn 
       while (this.hand.length > 0) {
         this.discardPile.push(this.hand.pop());
       }
@@ -145,8 +136,6 @@ export default class GameScene extends Phaser.Scene {
 
       this.turnManager.endPlayerTurn();
 
-      // enemyTurn happens immediately, so if we didn't die,
-      // a full "round" was survived.
       if (!this.isGameOver) {
         this.turnsSurvived += 1;
         this.updateSurviveUI();
@@ -161,22 +150,18 @@ export default class GameScene extends Phaser.Scene {
     this.turnManager.startPlayerTurn();
   }
 
-  // ===== Roguelike loop =====
+  // Roguelike loop 
   onVictory() {
     this.inReward = true;
     this.isPlayerTurn = false;
-    this.clearHighlights();
+    this.board.clearHighlights();
 
     const options = this.lootTable.drawOptions(3);
 
     this.cardSystem.showReward(options, (pickedCard) => {
-      // add to run deck (deck grows during the run)
       this.runDeck.push(pickedCard.id);
-
-      // optional immediate effect once
       pickedCard.apply(this);
 
-      // next floor
       this.floor += 1;
       this.turnsSurvived = 0;
       this.updateFloorUI();
@@ -184,75 +169,64 @@ export default class GameScene extends Phaser.Scene {
 
       this.inReward = false;
 
-      // new encounter
       this.resetEncounter();
-
-      // start player turn again
       if (!this.isGameOver) this.turnManager.startPlayerTurn();
     });
   }
 
   resetEncounter() {
-    // remove enemies from board + display
-    for (const e of this.enemies) {
-      delete this.pieces[`${e.x},${e.y}`];
-      e.sprite.destroy();
-      e.label.destroy();
-    }
-    this.enemies = [];
+    // clear enemies
+    this.board.clearEnemies();
 
-    // move king back to start position (keep HP/shield/DECK for roguelike continuity)
+    this.board.clearHighlights();
+
     const kx = Math.floor(this.gridSize / 2);
     const ky = this.gridSize - 1;
-    this.movePiece(this.king, kx, ky);
 
-    // new fight starts with fresh turn counters (deck stays)
-    this.movesRemaining = 0;
-    this.energy = this.maxEnergy;
-    this.updateEnergyUI();
+    this.board.generateWalls(this.floor, kx, ky);
 
-    // spawn new enemies scaled by floor
+    // move king back to start (keep HP/shield/deck)
+    this.board.movePiece(this.king, kx, ky);
+
+    // spawn new encounter
     this.spawnEncounter();
   }
 
-  spawnEncounter() {
-    // Simple scaling: more pawns as floor increases
-    // (we’ll add knight templates next)
-    const kx = Math.floor(this.gridSize / 2);
-    const enemyCount = Math.min(2 + Math.floor(this.floor - 1), 6);
+  pickEncounterTemplate() {
+    const pool =
+      this.floor >= 3
+        ? EncounterTemplates
+        : EncounterTemplates.filter((t) => t.id !== "knight_pressure");
 
-    for (let i = 0; i < enemyCount; i++) {
-      const ex = Phaser.Math.Clamp(
-        kx - Math.floor(enemyCount / 2) + i,
-        0,
-        this.gridSize - 1
-      );
-      const ey = 0;
-
-      // if occupied, shift down a row
-      const key = `${ex},${ey}`;
-      const spawnY = this.pieces[key] ? 1 : 0;
-
-      this.spawnEnemy("PAWN", ex, spawnY);
-    }
+    return pool[Math.floor(Math.random() * pool.length)];
   }
 
-  // ===== Turn hooks =====
+  spawnEncounter() {
+    const chosen = this.pickEncounterTemplate();
+    this.currentEncounter = chosen.id;
+    chosen.spawn(this); 
+  }
+
+  spawnEnemy(type, x, y) {
+    return this.board.spawnEnemy(type, x, y);
+  }
+
+  //Turn hooks 
   onPlayerTurnStart() {
-    // base chess move
     this.movesRemaining = 1;
     this.updateMovesUI();
 
-    // refill energy each player turn
     this.energy = this.maxEnergy;
     this.updateEnergyUI();
 
-    // draw a new hand each player turn
     this.drawHand(3);
     this.cardSystem.renderHand();
+
+    // show king moves with click callback
+    this.showLegalMovesForKing();
   }
 
-  // ===== Deck helpers =====
+  // Deck helpers 
   shuffle(array) {
     for (let i = array.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -263,14 +237,12 @@ export default class GameScene extends Phaser.Scene {
   resetDrawPileIfNeeded() {
     if (this.drawPile.length > 0) return;
 
-    // refill from discard if possible
     if (this.discardPile.length > 0) {
       this.drawPile = this.discardPile.splice(0);
       this.shuffle(this.drawPile);
       return;
     }
 
-    // first time: seed from runDeck
     this.drawPile = [...this.runDeck];
     this.shuffle(this.drawPile);
   }
@@ -285,7 +257,7 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  // ===== UI helpers =====
+  // UI helpers 
   updateHPUI() {
     if (this.hpText) this.hpText.setText(`HP: ${this.king.hp}`);
   }
@@ -321,138 +293,66 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  // ===== Piece helpers =====
-  spawnPiece(type, x, y, color) {
-    const px = this.gridOrigin.x + x * this.tileSize + this.tileSize / 2;
-    const py = this.gridOrigin.y + y * this.tileSize + this.tileSize / 2;
-
-    const sprite = this.add.circle(px, py, 24, color).setStrokeStyle(3, 0x000000);
-
-    const label = this.add.text(px - 10, py - 12, type[0], {
-      fontSize: "20px",
-      color: "#000000",
-    });
-
-    const piece = { type, x, y, sprite, label };
-    this.pieces[`${x},${y}`] = piece;
-    return piece;
-  }
-
-  spawnEnemy(type, x, y) {
-    const enemy = this.spawnPiece(type, x, y, 0xff5555);
-    enemy.isEnemy = true;
-    this.enemies.push(enemy);
-    return enemy;
-  }
-
-  movePiece(piece, newX, newY) {
-    delete this.pieces[`${piece.x},${piece.y}`];
-
-    piece.x = newX;
-    piece.y = newY;
-
-    this.pieces[`${newX},${newY}`] = piece;
-
-    const px = this.gridOrigin.x + newX * this.tileSize + this.tileSize / 2;
-    const py = this.gridOrigin.y + newY * this.tileSize + this.tileSize / 2;
-
-    piece.sprite.setPosition(px, py);
-    piece.label.setPosition(px - 10, py - 12);
-  }
-
-  // ===== Movement rules =====
-  getKingMoves(x, y) {
-    const moves = [];
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        if (dx === 0 && dy === 0) continue;
-
-        const nx = x + dx;
-        const ny = y + dy;
-
-        if (nx >= 0 && nx < this.gridSize && ny >= 0 && ny < this.gridSize) {
-          if (!this.pieces[`${nx},${ny}`]) moves.push({ x: nx, y: ny });
-        }
-      }
-    }
-    return moves;
-  }
-
-  // ===== Tile visuals =====
-  clearHighlights() {
-    for (let y = 0; y < this.gridSize; y++) {
-      for (let x = 0; x < this.gridSize; x++) {
-        const color = (x + y) % 2 === 0 ? 0x2f2f2f : 0x3a3a3a;
-        this.tiles[y][x].setFillStyle(color);
-        this.tiles[y][x].setStrokeStyle(2, 0x000000);
-      }
-    }
-  }
-
+  // King move/capture 
   showLegalMovesForKing() {
-    this.clearHighlights();
+    this.board.showLegalMovesForKing(this.king, (move) => {
+      if (this.isGameOver || this.inReward) return;
+      if (!this.isPlayerTurn) return;
+      if (this.movesRemaining <= 0) return;
 
-    this.legalMoves = this.getKingMoves(this.king.x, this.king.y);
+      this.board.captureAt(move.x, move.y);
+      this.board.movePiece(this.king, move.x, move.y);
 
-    for (const m of this.legalMoves) {
-      this.tiles[m.y][m.x].setStrokeStyle(4, 0x00ff88);
-    }
+      this.movesRemaining -= 1;
+      this.updateMovesUI();
 
-    for (let y = 0; y < this.gridSize; y++) {
-      for (let x = 0; x < this.gridSize; x++) {
-        const tile = this.tiles[y][x];
-        tile.removeAllListeners("pointerdown");
-
-        tile.on("pointerdown", () => {
-          const isLegal = this.legalMoves.some((p) => p.x === x && p.y === y);
-
-          if (
-            isLegal &&
-            this.isPlayerTurn &&
-            !this.inReward &&
-            this.movesRemaining > 0
-          ) {
-            this.movePiece(this.king, x, y);
-
-            this.movesRemaining -= 1;
-            this.updateMovesUI();
-
-            if (this.movesRemaining <= 0) {
-              this.clearHighlights();
-              return;
-            }
-
-            this.showLegalMovesForKing();
-          }
-        });
+      if (this.movesRemaining <= 0) {
+        this.board.clearHighlights();
+        this.board.renderWalls();
+        return;
       }
-    }
+
+      // keep showing moves if you still have moves
+      this.showLegalMovesForKing();
+    });
   }
 
-  // ===== Enemy AI =====
+  // Enemy AI 
   enemyTurn() {
-    for (let enemy of this.enemies) {
+    for (let enemy of this.board.enemies) {
       const dx = this.king.x - enemy.x;
       const dy = this.king.y - enemy.y;
 
       let moveX = enemy.x;
       let moveY = enemy.y;
 
-      if (Math.abs(dx) > Math.abs(dy)) moveX += Math.sign(dx);
-      else moveY += Math.sign(dy);
+      if (enemy.type === "KNIGHT") {
+        const moves = this.board.getKnightMoves(enemy.x, enemy.y);
 
-      if (
-        moveX < 0 ||
-        moveX >= this.gridSize ||
-        moveY < 0 ||
-        moveY >= this.gridSize
-      ) {
-        continue;
+        let best = null;
+        let bestDist = Infinity;
+        for (const m of moves) {
+          const dist = Math.abs(this.king.x - m.x) + Math.abs(this.king.y - m.y);
+          if (dist < bestDist) {
+            bestDist = dist;
+            best = m;
+          }
+        }
+
+        if (best) {
+          moveX = best.x;
+          moveY = best.y;
+        }
+      } else {
+        if (Math.abs(dx) > Math.abs(dy)) moveX += Math.sign(dx);
+        else moveY += Math.sign(dy);
       }
+
+      if (!this.board.inBounds(moveX, moveY)) continue;
+      if (this.board.isWall(moveX, moveY)) continue;
 
       // attack if would step onto king
       if (moveX === this.king.x && moveY === this.king.y) {
-        // shield blocks first
         if (this.shield > 0) {
           this.shield -= 1;
           this.updateShieldUI();
@@ -460,23 +360,20 @@ export default class GameScene extends Phaser.Scene {
           this.king.hp -= 1;
           this.updateHPUI();
 
-          // flash
           this.king.sprite.setFillStyle(0xffffff);
-          this.time.delayedCall(80, () =>
-            this.king.sprite.setFillStyle(0x4aa3ff)
-          );
+          this.time.delayedCall(80, () => this.king.sprite.setFillStyle(0x4aa3ff));
 
           if (this.king.hp <= 0) {
             this.gameOver();
             return;
           }
         }
-
         continue;
       }
 
-      if (!this.pieces[`${moveX},${moveY}`]) {
-        this.movePiece(enemy, moveX, moveY);
+      // move into empty tile only
+      if (!this.board.pieces[this.board.key(moveX, moveY)]) {
+        this.board.movePiece(enemy, moveX, moveY);
       }
     }
   }

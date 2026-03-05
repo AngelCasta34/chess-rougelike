@@ -1,7 +1,22 @@
 import CardList from "./CardList.js";
 
 function byId(id) {
-  return CardList.find((c) => c.id === id);
+  if (Array.isArray(CardList)) {
+    return CardList.find((c) => c.id === id) || null;
+  }
+
+  if (CardList && Array.isArray(CardList.cards)) {
+    return CardList.cards.find((c) => c.id === id) || null;
+  }
+
+  if (CardList && typeof CardList === "object") {
+    if (CardList[id]) return CardList[id];
+
+    const vals = Object.values(CardList);
+    return vals.find((c) => c && c.id === id) || null;
+  }
+
+  return null;
 }
 
 export default class CardSystem {
@@ -17,7 +32,7 @@ export default class CardSystem {
     this.rewardObjects = [];
   }
 
-  // ----- HAND -----
+  //  HAND 
   renderHand() {
     this.clearHand();
 
@@ -116,7 +131,7 @@ export default class CardSystem {
     this.handContainer.removeAll(false);
   }
 
-  // ----- REWARD SCREEN -----
+  //  REWARD SCREEN 
   showReward(options, onPick) {
     this.clearReward();
     this.rewardContainer.setVisible(true);

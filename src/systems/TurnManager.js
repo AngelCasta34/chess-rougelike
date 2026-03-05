@@ -8,7 +8,6 @@ export default class TurnManager {
     this.state = "PLAYER";
     this.scene.isPlayerTurn = true;
 
-    // Hook: reset per-turn resources (moves, energy later, etc.)
     this.scene.onPlayerTurnStart();
 
     this.scene.updateTurnUI();
