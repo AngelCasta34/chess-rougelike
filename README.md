@@ -1,0 +1,278 @@
+# Chess Roguelike
+
+A roguelike deckbuilder built with Phaser 3 where you play as a King piece navigating procedurally generated chess encounters. Each run is unique — enemy waves, card rewards, board layouts, and room sequences are all generated at runtime.
+
+---
+
+## How to Run
+
+```bash
+npm install
+npm run dev
+```
+
+Then open `http://localhost:5173` in your browser.
+
+---
+
+## How to Play
+
+- **Click a highlighted tile** to move your King (green border = move, orange border = attack)
+- **Click a card** in your hand to play it (costs energy)
+- **SPACE or END TURN button** to end your turn and let enemies move
+- Clear all enemies to advance — pick a new room, earn a card reward
+- Survive as many floors as possible
+
+---
+
+## Generative Systems
+
+The game uses four interconnected generative systems to ensure every run feels different.
+
+---
+
+### 1. Loot Table — Card Reward Generation
+**File:** `src/generators/LootTable.js`
+
+This is a direct JavaScript port of the **C# LootChest weighted rarity algorithm** from the CMPM147 Loot Table Generator tool.
+
+#### The C# Algorithm (Original)
+The original C# `GenerateLoot` method works in 6 steps:
+1. Build a `Dictionary<string, List<gameItem>>` organizing items by rarity (`insertCustomLootTable`)
+2. Calculate the weighted sum of all rarities (`insertCustomRarities`)
+3. Roll a random number from 0 to `weightedSum`
+4. Walk through rarities subtracting each weight — the first rarity that drives the roll below 0 is selected
+5. Track how many items of each rarity were selected
+6. Pick a random item from that rarity's item list
+
+#### The Implementation
+```js
+// Step 1 — build rarity map 
+_buildRarityMap(candidates) {
+  const map = {};
+  for (const card of candidates) {
+    if (!map[card.rarity]) map[card.rarity] = [];
+    map[card.rarity].push(card);
+  }
+  return map;
+}
+
+// Steps 2–4 — weighted rarity roll 
+_rollRarity(weights) {
+  let weightedSum = 0;
+  for (const w of Object.values(weights)) weightedSum += w;
+
+  let roll = Math.floor(Math.random() * weightedSum);
+  for (const [rarity, weight] of Object.entries(weights)) {
+    roll -= weight;           // subtract each weight
+    if (roll < 0) return rarity;  // first negative = winner
+  }
+}
+
+// Steps 5–6 — pick item from selected rarity's pool
+drawOptions(tableId, count, opts) {
+  const rarityMap = this._buildRarityMap(candidates);  // step 1
+  const rarity    = this._rollRarity(weights);          // steps 2–4
+  const pool      = rarityMap[rarity];                  // step 5
+  const card      = pool[Math.floor(Math.random() * pool.length)]; // step 6
+}
+```
+
+#### Rarity Weights
+Matching the C# default `Rarity_Weights = {55, 30, 15, 6, 1}`:
+
+| Rarity    | Fight Room | Elite Room |
+|-----------|-----------|------------|
+| Common    | 55        | 25         |
+| Uncommon  | 30        | 35         |
+| Rare      | 15        | 25         |
+| Epic      | 6         | 12         |
+| Legendary | 1         | 3          |
+
+#### Extensions Beyond the Base Tool
+- **Two loot tables**: `reward_fight` (default weights) and `reward_elite` (skewed toward higher rarities)
+- **Pity system**: If no Rare+ card has appeared in N rooms, Rare/Epic/Legendary weights increase each draw
+- **Tag filtering**: Rewards can be biased toward specific tags (e.g. `"movement"`, `"defense"`) before the rarity roll — falls back to the full pool if no tagged cards exist for the rolled rarity
+- **Duplicate prevention**: The same card won't appear twice in the same reward screen when the pool is large enough
+
+#### Where It's Called
+```js
+// GameScene.js — onVictory(), after clearing a room
+const options = [
+  ...this.lootTable.drawOptions("reward_fight", 1, { tag: "movement", pity }),
+  ...this.lootTable.drawOptions("reward_fight", 1, { tag: "defense",  pity }),
+  ...this.lootTable.drawOptions("reward_fight", 1, { pity }),
+];
+```
+Three draws are made per reward screen — one biased toward movement cards, one toward defense, one unfiltered — guaranteeing variety in every offer.
+
+---
+
+### 2. Enemy Wave Generation
+**File:** `src/generators/EnemyFactory.js`
+
+A budget-based system that generates a unique set of enemy stat blocks each room.
+
+- **Budget**: `3 + floor*2 + random variance` — grows and becomes less predictable on higher floors
+- **Piece types unlock by floor**: Pawns (floor 1) → Knights/Bishops (2–3) → Rooks (4) → Queens (6+)
+- **Per-enemy stat scaling**: HP increases every 3 floors with a 30% variance roll; ATK increases on floor 5+
+- **Modifiers**: Armored (+2 HP), Vicious (+1 ATK), Elite (+2 HP +1 ATK), Frail (-1 HP) — chance scales from 10% on floor 1 to 55% cap
+
+---
+
+### 3. Encounter Placement
+**File:** `src/systems/EncounterTemplates.js`
+
+Takes the generated enemy stat blocks and places them on the board using one of 5 randomly selected strategies:
+
+| Strategy  | Description |
+|-----------|-------------|
+| Spread    | Random positions across the top 3 rows |
+| Flanks    | Heavy pieces on the edges, light pieces in the center |
+| Vanguard  | Strongest enemies pushed to the front row |
+| Pincer    | Enemies split into two groups on opposite sides |
+| Column    | Enemies packed into 1–3 central columns |
+
+---
+
+### 4. Board & Room Generation
+**File:** `src/board/Board.js`, `src/scenes/GameScene.js`
+
+- **Wall generation**: Each room places `6 + floor*2` walls (capped at 22) in random positions, with safe zones around the king start and enemy spawn rows
+- **Room map**: After each fight, 3 room type options are randomly weighted from: Fight, Elite, Rest, Shop — with Boss forced every 5th floor
+
+---
+
+## Project Structure
+
+```
+src/
+  board/
+    Board.js                  # Board rendering, piece movement, combat
+  cards/
+    CardList.js               # All card definitions and effects
+    CardSystem.js             # Hand rendering, reward screen
+  generators/
+    EnemyFactory.js           # Budget-based enemy stat generation
+    LootTable.js              # Weighted rarity card reward generation (C# port)
+  scenes/
+    GameScene.js              # Main game loop, UI, roguelike flow
+  systems/
+    EnemyAI.js                # Chess movement logic for all 5 piece types
+    EncounterTemplates.js     # Procedural enemy placement strategies
+    ShopSystem.js             # Buy/remove cards shop overlay
+    StatusEffects.js          # Burning, frozen, weakened status effects
+    TurnManager.js            # Player/enemy turn sequencing
+```
+
+---
+
+## Example Generated Outputs
+
+Each run produces a different combination of enemy composition, board layout, and card rewards. The screenshots below are from the `SCREENSHOTS/` folder and show a full run from Floor 1 through Game Over.
+
+**Screenshot 1 — Floor 1 combat (run A)**
+![Floor 1 run A](SCREENSHOTS/2026-03-08%2015_03_37-Settings.png)
+6 Pawns, spread formation, walls randomized around the board.
+
+**Screenshot 2 — Floor 1 combat (run B)**
+![Floor 1 run B](SCREENSHOTS/2026-03-08%2015_03_52-Settings.png)
+Same floor, different wall layout and enemy positions — Vanguard-style clustering on the left.
+
+**Screenshot 3 — Card reward screen (after Floor 1)**
+![Card reward](SCREENSHOTS/2026-03-08%2015_08_23-Settings.png)
+Weighted loot table offers Push (Common), Heal (Uncommon), Shield (Common) — tag-filtered draws.
+
+**Screenshot 4 — Room choice screen**
+![Room choice](SCREENSHOTS/2026-03-08%2015_08_39-Settings.png)
+After clearing a room, three room types are randomly weighted: Rest, Fight, Shop.
+
+**Screenshot 5 — Floor 2 combat**
+![Floor 2](SCREENSHOTS/floor2.png)
+8 enemies, higher budget, P*3 modifier (Armored Pawn), more walls than Floor 1.
+
+**Screenshot 6 — Floor 2 Rare reward**
+![Floor 2 reward](SCREENSHOTS/floor2win.png)
+Loot table rolls a Rare (Swift Crown PERMANENT) and a PERMANENT (Iron Will) — higher rarities visible.
+
+**Screenshot 7 — Floor 3 with Knights and Bishops**
+![Floor 3](SCREENSHOTS/floor3.png)
+New piece types unlock: Knights (N, orange) and Bishops (B, yellow) appear for the first time.
+
+**Screenshot 8 — Floor 3 reward with Rare card**
+![Floor 3 reward](SCREENSHOTS/floor3win.png)
+Blitz (Rare, blue border) offered alongside Common and Uncommon — rarity variation across runs.
+
+**Screenshot 9 — Game Over on Floor 4**
+![Game Over](SCREENSHOTS/GAMEOVER.png)
+Run ended on Floor 4 with 20 kills, 108g gold, 7-card deck built across the run.
+
+**Variation across runs comes from:**
+
+- Budget-rolled enemy counts and types per floor
+- Random modifier rolls (Armored, Vicious, Frail, Elite) on individual enemies
+- One of 5 placement strategies selected per room
+- Wall count and position re-randomized each room
+- Card reward pool filtered by tag (movement/defense/any) with weighted rarity rolls and pity tracking
+- Room path choices (Fight / Elite / Rest / Shop) weighted randomly after each victory
+
+---
+
+## Risk Review
+
+### Risk 1 — Enemy Displacement on Crowded Boards (High Priority)
+
+**What it is:** When an enemy is displaced by a card, the code searches for a safe landing tile. On high floors with 20+ walls and multiple enemies, the fallback search can exhaust all 500 attempts and silently destroy the enemy instead of moving it. This could let the player accidentally delete enemies with no feedback, or fail silently in ways that feel like bugs.
+
+**Plan to address:** Add a minimum-enemy safeguard and log/display a message when destruction fallback triggers. Clamp wall generation earlier to prevent overcrowding before it reaches displacement logic.
+
+---
+
+### Risk 2 — Balance Scaling at Higher Floors (Medium Priority)
+
+**What it is:** Enemy budget, HP, and ATK scale with floor number, but the card pool and player HP do not scale. A player who picks weak cards early may hit a wall around floor 6–8 where enemies are significantly tankier with no recovery path. Roguelike balance is hard to tune without playtesting data. An unwinnable mid-run state that isn't the player's fault is a bad experience.
+
+**Plan to address:** tune the Elite loot table to offer stronger cards sooner, and add a floor-aware difficulty cap on modifier stacking so floors 1–4 remain accessible.
+
+---
+
+### Risk 3 — UI Feedback Gaps (Lower Priority)
+
+**What it is:** Several systems operate silently — the shop card removal has a silent-failure edge case, status effects don't always show clear visual indicators, and the threat map can briefly show ghost threats from already-dead enemies. Players need readable feedback to make decisions. Silent failures erode trust in the game's systems.
+
+**Plan to address:** Add text popups for status applications, validate shop removals before charging gold, and clear the threat map immediately when an enemy dies mid-turn rather than waiting for end-of-turn cleanup.
+
+---
+
+## Plan Before Final Showcase
+
+### Already Complete
+
+- Core turn-based loop (player move → card play → end turn → enemy move)
+- All 5 chess piece AI movement types
+- 25+ cards across Common–Legendary rarity
+- Weighted loot table with pity system and tag filtering (C# port)
+- Budget-based enemy wave generation with 5 placement strategies
+- Procedural wall generation per room
+- Status effects (Burning, Frozen, Weakened)
+- Shop system (buy cards, remove cards)
+- Boss encounters every 5th floor
+- Full roguelike progression (floor counter, room branching, game over screen)
+
+### To Complete Before Showcase
+
+- [ ] Fix enemy displacement silent-destruction fallback
+- [ ] Add status effect visual popups (floating text on apply)
+- [ ] Validate and harden shop card removal
+- [ ] Tune floor 1–5 difficulty curve based on playtesting
+- [ ] Add a win condition (e.g. defeat the Queen boss on floor 10)
+- [x] Screenshots / short video of 5+ generated runs for submission
+- [ ] Deploy to GitHub Pages so the game is playable without a local install
+
+---
+
+## Tech Stack
+
+- **Phaser 3** — game framework (rendering, input, tweens, timers)
+- **Vite** — dev server and bundler
+- **Vanilla JS (ES Modules)** — no additional frameworks

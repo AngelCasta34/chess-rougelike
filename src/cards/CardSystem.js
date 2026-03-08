@@ -1,5 +1,17 @@
 import CardList from "./CardList.js";
 
+const RARITY_COLOR = {
+  Common:    "#ffffff",
+  Uncommon:  "#44ff88",
+  Rare:      "#4499ff",
+  Epic:      "#cc44ff",
+  Legendary: "#ff8800",
+};
+
+function rarityColor(rarity) {
+  return RARITY_COLOR[rarity] ?? "#ffffff";
+}
+
 function byId(id) {
   if (Array.isArray(CardList)) {
     return CardList.find((c) => c.id === id) || null;
@@ -32,87 +44,67 @@ export default class CardSystem {
     this.rewardObjects = [];
   }
 
-  //  HAND 
+  //  HAND
   renderHand() {
     this.clearHand();
 
     const scene = this.scene;
 
-    // Energy label
-    const energyText = scene.add.text(20, 520, `ENERGY: ${scene.energy}/${scene.maxEnergy}`, {
-      fontSize: "18px",
-      color: "#ffffff",
-    });
-    this.handContainer.add(energyText);
-    this.handObjects.push(energyText);
-
-    // Deck/discard counts
-    const deckText = scene.add.text(20, 545, `DECK: ${scene.drawPile.length}  DISCARD: ${scene.discardPile.length}`, {
-      fontSize: "16px",
-      color: "#cccccc",
+    // Deck/discard counts in sidebar area
+    const deckText = scene.add.text(735, 416, `DECK: ${scene.drawPile.length}  DISC: ${scene.discardPile.length}`, {
+      fontSize: "12px", color: "#555566",
     });
     this.handContainer.add(deckText);
     this.handObjects.push(deckText);
 
-    // Cards
-    const startX = 220;
-    const y = 545;
-    const gap = 160;
+    // Cards centered over the board 
+    const cardW     = 140;
+    const cardH     = 108;
+    const cardGap   = 14;
+    const boardCX   = 384;
+    const y         = 684;
+    const n         = scene.hand.length;
+    const totalW    = n * cardW + (n - 1) * cardGap;
+    const firstCardX = boardCX - totalW / 2 + cardW / 2;
 
     scene.hand.forEach((cardId, i) => {
       const card = byId(cardId);
       if (!card) return;
 
-      const x = startX + i * gap;
+      const x = firstCardX + i * (cardW + cardGap);
 
       const canAfford = scene.energy >= card.cost;
-      const fill = canAfford ? 0x2b2b2b : 0x1f1f1f;
+      const fill      = canAfford ? 0x1e1e2e : 0x141420;
+      const strokeHex = parseInt(rarityColor(card.rarity).replace("#", ""), 16);
 
       const box = scene.add
-        .rectangle(x, y, 140, 90, fill)
-        .setStrokeStyle(2, 0xffffff)
+        .rectangle(x, y, cardW, cardH, fill)
+        .setStrokeStyle(2, canAfford ? strokeHex : 0x444444)
         .setInteractive();
 
-      const name = scene.add.text(x - 60, y - 35, card.name, {
-        fontSize: "16px",
-        color: "#ffffff",
+      const name = scene.add.text(x - 62, y - 46, card.name, {
+        fontSize: "15px", color: rarityColor(card.rarity),
+      });
+      const cost = scene.add.text(x - 62, y - 27, `Cost: ${card.cost}`, {
+        fontSize: "12px", color: "#aaaaaa",
+      });
+      const desc = scene.add.text(x - 62, y - 9, card.desc, {
+        fontSize: "11px", color: "#dddddd", wordWrap: { width: 124 },
       });
 
-      const cost = scene.add.text(x - 60, y - 15, `Cost: ${card.cost}`, {
-        fontSize: "14px",
-        color: "#cccccc",
-      });
-
-      const desc = scene.add.text(x - 60, y + 5, card.desc, {
-        fontSize: "12px",
-        color: "#ffffff",
-        wordWrap: { width: 120 },
-      });
-
-      box.on("pointerover", () => {
-        box.setFillStyle(canAfford ? 0x3a3a3a : 0x242424);
-      });
-      box.on("pointerout", () => {
-        box.setFillStyle(fill);
-      });
-
+      box.on("pointerover", () => box.setFillStyle(canAfford ? 0x2a2a3e : 0x1a1a28));
+      box.on("pointerout",  () => box.setFillStyle(fill));
       box.on("pointerdown", () => {
         if (scene.inReward || scene.isGameOver) return;
         if (!scene.isPlayerTurn) return;
         if (scene.energy < card.cost) return;
 
-        // pay energy
         scene.energy -= card.cost;
         scene.updateEnergyUI();
-
-        // apply effect
         card.apply(scene);
 
-        // discard the played card
         const removed = scene.hand.splice(i, 1)[0];
         scene.discardPile.push(removed);
-
-        // re-render hand
         this.renderHand();
       });
 
@@ -120,7 +112,6 @@ export default class CardSystem {
       this.handContainer.add(name);
       this.handContainer.add(cost);
       this.handContainer.add(desc);
-
       this.handObjects.push(box, name, cost, desc);
     });
   }
@@ -158,19 +149,22 @@ export default class CardSystem {
     options.forEach((card, i) => {
       const x = startX + i * gap;
 
+      const strokeHex = parseInt(rarityColor(card.rarity).replace("#", ""), 16);
       const box = scene.add
         .rectangle(x, y, 220, 260, 0x2b2b2b)
-        .setStrokeStyle(3, 0xffffff)
+        .setStrokeStyle(3, strokeHex)
         .setInteractive();
 
-      const name = scene.add.text(x - 90, y - 110, card.name, {
-        fontSize: "22px",
-        color: "#ffffff",
+      // Permanent badge
+      const nameLabel = card.permanent ? `★ ${card.name}` : card.name;
+      const name = scene.add.text(x - 90, y - 110, nameLabel, {
+        fontSize: "20px",
+        color: rarityColor(card.rarity),
       });
 
-      const rarity = scene.add.text(x - 90, y - 75, `Rarity: ${card.rarity}`, {
-        fontSize: "16px",
-        color: "#cccccc",
+      const rarity = scene.add.text(x - 90, y - 75, card.permanent ? "PERMANENT" : `${card.rarity}`, {
+        fontSize: "14px",
+        color: card.permanent ? "#ffdd44" : "#aaaaaa",
       });
 
       const cost = scene.add.text(x - 90, y - 55, `Cost: ${card.cost}`, {

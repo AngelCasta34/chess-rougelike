@@ -19,11 +19,15 @@ export default class TurnManager {
     this.scene.isPlayerTurn = false;
     this.scene.updateTurnUI();
 
-    // enemies act once
-    this.scene.enemyTurn();
+    // Show where enemies WILL move (telegraph), then execute after delay
+    this.scene.showEnemyTelegraphs();
 
-    // back to player
-    this.startPlayerTurn();
+    this.scene.time.delayedCall(650, () => {
+      if (this.scene.isGameOver) return;
+      this.scene.clearEnemyTelegraphs();
+      this.scene.enemyTurn();
+      if (!this.scene.isGameOver) this.startPlayerTurn();
+    });
   }
 
   endPlayerTurn() {
