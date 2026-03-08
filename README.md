@@ -269,7 +269,7 @@ Run ended on Floor 4 with 20 kills, 108g gold, 7-card deck built across the run.
 - [x] Screenshots / short video of 5+ generated runs for submission
 - [ ] Deploy to GitHub Pages so the game is playable without a local install
 
----
+
 
 ## Tech Stack
 
