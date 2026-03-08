@@ -209,6 +209,10 @@ Blitz (Rare, blue border) offered alongside Common and Uncommon — rarity varia
 ![Game Over](SCREENSHOTS/GAMEOVER.png)
 Run ended on Floor 4 with 20 kills, 108g gold, 7-card deck built across the run.
 
+**Screenshot 10 — Boss Fight**
+![Boss Fight](SCREENSHOTS/bossfight.png)
+Boss encounter triggered every 5th floor — Queen piece with elevated HP and ATK, unique placement strategy.
+
 **Variation across runs comes from:**
 
 - Budget-rolled enemy counts and types per floor
