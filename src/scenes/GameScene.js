@@ -25,6 +25,15 @@ const ROOM_CONFIG = {
 export default class GameScene extends Phaser.Scene {
   constructor() { super("GameScene"); }
 
+  preload() {
+    const base = "assets/chessPieces/chess-pack";
+    for (const color of ["white", "black"]) {
+      for (const piece of ["pawn", "knight", "bishop", "rook", "queen", "king"]) {
+        this.load.image(`chess-${piece}-${color}`, `${base}/chess-${piece}-${color}.png`);
+      }
+    }
+  }
+
   create() {
     // Board settings 
     this.gridSize   = 9;
@@ -93,7 +102,7 @@ export default class GameScene extends Phaser.Scene {
     // Spawn king 
     const kx = Math.floor(this.board.gridSize / 2);
     const ky = this.board.gridSize - 1;
-    this.king       = this.board.spawnPiece("KING", kx, ky, 0x4aa3ff);
+    this.king       = this.board.spawnPiece("KING", kx, ky);
     this.king.hp    = 5;
     this.king.maxHp = 5;
 
@@ -547,9 +556,9 @@ export default class GameScene extends Phaser.Scene {
         } else {
           this.king.hp -= dmg;
           this.updateHPUI();
-          this.king.sprite.setFillStyle(0xffffff);
+          this.king.sprite.setTint(0xffffff);
           this.time.delayedCall(80, () => {
-            if (this.king.sprite?.active) this.king.sprite.setFillStyle(0x4aa3ff);
+            if (this.king.sprite?.active) this.king.sprite.clearTint();
           });
           if (this.king.hp <= 0) { this.gameOver(); return; }
         }

@@ -67,38 +67,36 @@ export default class Board {
   }
 
   // pieces 
-  // Generic piece spawn 
-  spawnPiece(type, x, y, color) {
+  // Generic piece spawn
+  spawnPiece(type, x, y) {
     const { px, py } = this.worldPos(x, y);
-    const sprite = this.scene.add.circle(px, py, 24, color).setStrokeStyle(3, 0x000000);
-    const label  = this.scene.add.text(px - 10, py - 12, type[0], {
-      fontSize: "20px",
-      color:    "#000000",
-    });
+    const key    = `chess-${type.toLowerCase()}-white`;
+    const sprite = this.scene.add.image(px, py, key).setDisplaySize(52, 52);
 
-    const piece = { type, x, y, sprite, label };
+    const piece = { type, x, y, sprite, label: null };
     this.pieces[this.key(x, y)] = piece;
     return piece;
   }
 
   // Spawn an enemy with a full stat block from EnemyFactory
-  // stats: { type, hp, maxHp, atk, color, label }
+  // stats: { type, hp, maxHp, atk, modifier }
   spawnEnemy(stats, x, y) {
     if (!this.inBounds(x, y))          return null;
     if (this.isWall(x, y))             return null;
     if (this.pieces[this.key(x, y)])   return null;
 
     const { px, py } = this.worldPos(x, y);
-    const sprite = this.scene.add
-      .circle(px, py, 24, stats.color)
-      .setStrokeStyle(3, 0x000000);
-    sprite._baseColor = stats.color;
+    const key    = `chess-${stats.type.toLowerCase()}-black`;
+    const sprite = this.scene.add.image(px, py, key).setDisplaySize(52, 52);
 
-    const labelText = this.scene.add.text(px, py - 4, this._enemyText(stats.label, stats.hp), {
-      fontSize:  "13px",
-      color:     "#000000",
-      align:     "center",
-    }).setOrigin(0.5, 0);
+    const suffix    = stats.modifier ? stats.modifier.suffix : "";
+    const labelText = this.scene.add.text(px, py + 22, `${stats.hp}${suffix}`, {
+      fontSize:        "12px",
+      color:           "#ffffff",
+      align:           "center",
+      backgroundColor: "#000000",
+      padding:         { x: 3, y: 1 },
+    }).setOrigin(0.5, 0.5);
 
     const enemy = {
       type:     stats.type,
@@ -117,16 +115,9 @@ export default class Board {
     return enemy;
   }
 
-  _enemyText(pieceLabel, hp) {
-    return `${pieceLabel}\n${hp}`;
-  }
-
   _refreshEnemyLabel(enemy) {
-    enemy.label.setText(this._enemyText(
-      enemy.type === "KNIGHT" ? "N" + (enemy.modifier ? enemy.modifier.suffix : "")
-                               : enemy.type[0] + (enemy.modifier ? enemy.modifier.suffix : ""),
-      enemy.hp
-    ));
+    const suffix = enemy.modifier ? enemy.modifier.suffix : "";
+    enemy.label.setText(`${enemy.hp}${suffix}`);
   }
 
   movePiece(piece, newX, newY) {
@@ -144,10 +135,8 @@ export default class Board {
       ease: "Power2",
     });
 
-    if (piece.isEnemy) {
-      this.scene.tweens.add({ targets: piece.label, x: px, y: py - 4, duration: 130, ease: "Power2" });
-    } else {
-      this.scene.tweens.add({ targets: piece.label, x: px - 10, y: py - 12, duration: 130, ease: "Power2" });
+    if (piece.isEnemy && piece.label) {
+      this.scene.tweens.add({ targets: piece.label, x: px, y: py + 22, duration: 130, ease: "Power2" });
     }
   }
 
@@ -163,10 +152,10 @@ export default class Board {
     // Notify scene (boss HP bar, etc.)
     if (this.onEnemyDamaged) this.onEnemyDamaged(target);
 
-    // Flash white on hit, restore original color
-    target.sprite.setFillStyle(0xffffff);
+    // Flash white on hit
+    target.sprite.setTint(0xffffff);
     this.scene.time.delayedCall(80, () => {
-      if (target.sprite?.active) target.sprite.setFillStyle(target.sprite._baseColor);
+      if (target.sprite?.active) target.sprite.clearTint();
     });
 
     if (target.hp <= 0) {
