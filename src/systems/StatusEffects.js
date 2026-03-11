@@ -27,10 +27,10 @@ export function processStatuses(enemy, board) {
     enemy.hp -= 1;
     board._refreshEnemyLabel(enemy);
 
-    // Flash orange
-    enemy.sprite?.setFillStyle(0xff8800);
-    board.scene.time.delayedCall(80, () => {
-      if (enemy.sprite?.active) enemy.sprite.setFillStyle(enemy.sprite._baseColor);
+    // Flash orange on burn tick
+    enemy.sprite?.setTint(0xff6600);
+    board.scene.time.delayedCall(120, () => {
+      if (enemy.sprite?.active) refreshStatusVisuals(enemy);
     });
 
     if (enemy.hp <= 0) {
@@ -60,12 +60,11 @@ export function consumeWeakened(enemy) {
   return false;
 }
 
-// Update sprite border color to reflect active statuses
 export function refreshStatusVisuals(enemy) {
   if (!enemy.sprite?.active) return;
   const s = enemy.statuses ?? {};
-  if ((s[STATUS.FROZEN]   ?? 0) > 0) enemy.sprite.setStrokeStyle(4, 0x44ddff);
-  else if ((s[STATUS.BURNING]  ?? 0) > 0) enemy.sprite.setStrokeStyle(4, 0xff6600);
-  else if ((s[STATUS.WEAKENED] ?? 0) > 0) enemy.sprite.setStrokeStyle(4, 0xdddd00);
-  else enemy.sprite.setStrokeStyle(3, 0x000000);
+  if ((s[STATUS.FROZEN]   ?? 0) > 0) enemy.sprite.setTint(0x44ddff);
+  else if ((s[STATUS.BURNING]  ?? 0) > 0) enemy.sprite.setTint(0xff8844);
+  else if ((s[STATUS.WEAKENED] ?? 0) > 0) enemy.sprite.setTint(0xdddd00);
+  else enemy.sprite.clearTint();
 }

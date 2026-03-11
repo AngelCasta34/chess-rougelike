@@ -31,6 +31,9 @@ function byId(id) {
   return null;
 }
 
+// How many cards are visible at once in the strip
+const VISIBLE_CARDS = 4;
+
 export default class CardSystem {
   constructor(scene) {
     this.scene = scene;
@@ -42,6 +45,18 @@ export default class CardSystem {
 
     this.handObjects = [];
     this.rewardObjects = [];
+
+    // Register mouse wheel scrolling on the bottom strip
+    scene.input.on("wheel", (_ptr, _objs, _dx, dy) => {
+      if (scene.isGameOver || scene.inReward) return;
+      if (!scene.isPlayerTurn) return;
+      if (scene.hand.length <= VISIBLE_CARDS) return;
+      const dir = dy > 0 ? 1 : -1;
+      const max = Math.max(0, scene.hand.length - VISIBLE_CARDS);
+      scene._handScrollOffset = Math.max(0, Math.min((scene._handScrollOffset ?? 0) + dir, max));
+      this.renderHand();
+      scene.updateDeckPanel?.();
+    });
   }
 
   //  HAND
@@ -50,62 +65,138 @@ export default class CardSystem {
 
     const scene = this.scene;
 
-    // Deck/discard counts in sidebar area
-    const deckText = scene.add.text(735, 416, `DECK: ${scene.drawPile.length}  DISC: ${scene.discardPile.length}`, {
-      fontSize: "12px", color: "#555566",
-    });
-    this.handContainer.add(deckText);
-    this.handObjects.push(deckText);
+    const cardW   = 140;
+    const cardH   = 108;
+    const cardGap = 10;
+    const y       = 684;
 
-    // Cards centered over the board 
-    const cardW     = 140;
-    const cardH     = 108;
-    const cardGap   = 14;
-    const boardCX   = 384;
-    const y         = 684;
-    const n         = scene.hand.length;
-    const totalW    = n * cardW + (n - 1) * cardGap;
-    const firstCardX = boardCX - totalW / 2 + cardW / 2;
+    // Clamp scroll offset
+    if (scene._handScrollOffset === undefined) scene._handScrollOffset = 0;
+    const maxOffset = Math.max(0, scene.hand.length - VISIBLE_CARDS);
+    scene._handScrollOffset = Math.max(0, Math.min(scene._handScrollOffset, maxOffset));
 
-    scene.hand.forEach((cardId, i) => {
+    const offset       = scene._handScrollOffset;
+    const visibleSlice = scene.hand.slice(offset, offset + VISIBLE_CARDS);
+    const n            = visibleSlice.length;
+
+    // Total width of visible cards, centered in the board area (x 0-724)
+    const areaW      = 724;
+    const totalW     = n * cardW + (n - 1) * cardGap;
+    const areaCenter = areaW / 2;
+    const firstCardX = areaCenter - totalW / 2 + cardW / 2;
+
+    // Scroll arrow — left
+    if (offset > 0) {
+      const btn = scene.add.text(22, y, "◀", {
+        fontSize: "28px", color: "#5566aa",
+      }).setOrigin(0.5).setInteractive();
+      btn.on("pointerover",  () => btn.setColor("#8899ff"));
+      btn.on("pointerout",   () => btn.setColor("#5566aa"));
+      btn.on("pointerdown",  () => {
+        scene._handScrollOffset = Math.max(0, offset - 1);
+        this.renderHand();
+        scene.updateDeckPanel?.();
+      });
+      this.handContainer.add(btn);
+      this.handObjects.push(btn);
+    }
+
+    // Scroll arrow — right
+    if (offset < maxOffset) {
+      const btn = scene.add.text(702, y, "▶", {
+        fontSize: "28px", color: "#5566aa",
+      }).setOrigin(0.5).setInteractive();
+      btn.on("pointerover",  () => btn.setColor("#8899ff"));
+      btn.on("pointerout",   () => btn.setColor("#5566aa"));
+      btn.on("pointerdown",  () => {
+        scene._handScrollOffset = Math.min(maxOffset, offset + 1);
+        this.renderHand();
+        scene.updateDeckPanel?.();
+      });
+      this.handContainer.add(btn);
+      this.handObjects.push(btn);
+    }
+
+    // Scroll indicator dots 
+    if (scene.hand.length > VISIBLE_CARDS) {
+      scene.hand.forEach((_, di) => {
+        const inWindow = di >= offset && di < offset + VISIBLE_CARDS;
+        const dot = scene.add.circle(
+          areaCenter - (scene.hand.length - 1) * 5 + di * 10,
+          629,
+          3,
+          inWindow ? 0x8899ff : 0x333348,
+        );
+        this.handContainer.add(dot);
+        this.handObjects.push(dot);
+      });
+    }
+
+    // Render visible cards
+    visibleSlice.forEach((cardId, vi) => {
       const card = byId(cardId);
       if (!card) return;
 
-      const x = firstCardX + i * (cardW + cardGap);
+      const actualIndex   = offset + vi;
+      const x             = firstCardX + vi * (cardW + cardGap);
 
-      const canAfford = scene.energy >= card.cost;
-      const fill      = canAfford ? 0x1e1e2e : 0x141420;
-      const strokeHex = parseInt(rarityColor(card.rarity).replace("#", ""), 16);
+      const alreadyPlayed = scene._playedThisTurn?.has(cardId) ?? false;
+      const canAfford     = scene.energy >= card.cost;
+      const canPlay       = canAfford && !alreadyPlayed;
+      const fill          = canPlay ? 0x1e1e2e : 0x141420;
+      const strokeHex     = parseInt(rarityColor(card.rarity).replace("#", ""), 16);
 
       const box = scene.add
         .rectangle(x, y, cardW, cardH, fill)
-        .setStrokeStyle(2, canAfford ? strokeHex : 0x444444)
+        .setStrokeStyle(2, canPlay ? strokeHex : 0x444444)
         .setInteractive();
 
       const name = scene.add.text(x - 62, y - 46, card.name, {
-        fontSize: "15px", color: rarityColor(card.rarity),
+        fontSize: "15px", color: canPlay ? rarityColor(card.rarity) : "#555566",
       });
       const cost = scene.add.text(x - 62, y - 27, `Cost: ${card.cost}`, {
         fontSize: "12px", color: "#aaaaaa",
       });
       const desc = scene.add.text(x - 62, y - 9, card.desc, {
-        fontSize: "11px", color: "#dddddd", wordWrap: { width: 124 },
+        fontSize: "11px", color: canPlay ? "#dddddd" : "#555566", wordWrap: { width: 124 },
       });
 
-      box.on("pointerover", () => box.setFillStyle(canAfford ? 0x2a2a3e : 0x1a1a28));
+      // "USED" badge for already-played cards
+      if (alreadyPlayed) {
+        const usedLbl = scene.add.text(x, y + 30, "USED", {
+          fontSize: "14px", color: "#884444",
+        }).setOrigin(0.5);
+        this.handContainer.add(usedLbl);
+        this.handObjects.push(usedLbl);
+      }
+
+      box.on("pointerover", () => box.setFillStyle(canPlay ? 0x2a2a3e : 0x1a1a28));
       box.on("pointerout",  () => box.setFillStyle(fill));
       box.on("pointerdown", () => {
         if (scene.inReward || scene.isGameOver) return;
         if (!scene.isPlayerTurn) return;
         if (scene.energy < card.cost) return;
+        if (scene._playedThisTurn?.has(cardId)) return;
+
+        scene._playedThisTurn ??= new Set();
+        scene._playedThisTurn.add(cardId);
 
         scene.energy -= card.cost;
         scene.updateEnergyUI();
+        scene.sfx?.playCardPlay();
         card.apply(scene);
 
-        const removed = scene.hand.splice(i, 1)[0];
-        scene.discardPile.push(removed);
+        scene.hand.splice(actualIndex, 1);
+        scene.discardPile.push(cardId);
+
+        // Clamp offset if last card in window was removed
+        scene._handScrollOffset = Math.max(
+          0,
+          Math.min(scene._handScrollOffset, Math.max(0, scene.hand.length - VISIBLE_CARDS))
+        );
+
         this.renderHand();
+        scene.updateDeckPanel?.();
       });
 
       this.handContainer.add(box);
@@ -122,7 +213,7 @@ export default class CardSystem {
     this.handContainer.removeAll(false);
   }
 
-  //  REWARD SCREEN 
+  //  REWARD SCREEN
   showReward(options, onPick) {
     this.clearReward();
     this.rewardContainer.setVisible(true);

@@ -9,17 +9,20 @@ import { getEnemyMoves, chooseBestMove } from "../systems/EnemyAI.js";
 import { processStatuses, consumeWeakened } from "../systems/StatusEffects.js";
 import { buildEnemy } from "../generators/EnemyFactory.js";
 import CardList from "../cards/CardList.js";
+import SoundManager from "../systems/SoundManager.js";
 
 // Gold earned per piece type
-const GOLD_TABLE = { PAWN: 4, KNIGHT: 8, BISHOP: 8, ROOK: 14, QUEEN: 25 };
+const GOLD_TABLE = { PAWN: 8, KNIGHT: 15, BISHOP: 15, ROOK: 25, QUEEN: 45 };
 
 // Room choice visual config
 const ROOM_CONFIG = {
-  fight: { label: "FIGHT",     icon: "⚔",  color: 0x334455, desc: "Clear enemies.\nEarn a card reward." },
-  elite: { label: "ELITE",     icon: "💀",  color: 0x553333, desc: "Harder enemies.\nBetter card reward." },
-  rest:  { label: "REST",      icon: "♥",   color: 0x335533, desc: "Heal 3 HP.\nNo combat." },
-  shop:  { label: "SHOP",      icon: "★",   color: 0x555533, desc: "Buy or remove cards." },
-  boss:  { label: "BOSS",      icon: "👑",  color: 0x553300, desc: "BOSS FIGHT!\nLegendary reward." },
+  fight:    { label: "FIGHT",    icon: "⚔",  color: 0x334455, desc: "Clear enemies.\nEarn a card reward." },
+  elite:    { label: "ELITE",    icon: "💀",  color: 0x553333, desc: "Harder enemies.\nBetter card reward." },
+  rest:     { label: "REST",     icon: "♥",   color: 0x335533, desc: "Heal 3 HP.\nNo combat." },
+  shop:     { label: "SHOP",     icon: "★",   color: 0x555533, desc: "Buy or remove cards." },
+  treasure: { label: "TREASURE", icon: "💰",  color: 0x554400, desc: "Find gold &\na bonus blessing." },
+  boss:     { label: "BOSS",     icon: "👑",  color: 0x553300, desc: "BOSS FIGHT!\nLegendary reward." },
+  shrine:   { label: "SHRINE",   icon: "✦",  color: 0x443355, desc: "Choose a blessing\nbefore the boss." },
 };
 
 export default class GameScene extends Phaser.Scene {
@@ -32,6 +35,8 @@ export default class GameScene extends Phaser.Scene {
         this.load.image(`chess-${piece}-${color}`, `${base}/chess-${piece}-${color}.png`);
       }
     }
+    this.load.audio("music_dungeon", "assets/music/Big Helmet.mp3");
+    this.load.audio("music_boss",    "assets/music/never meant to belong.mp3");
   }
 
   create() {
@@ -69,11 +74,12 @@ export default class GameScene extends Phaser.Scene {
     this.runDeck     = ["dash", "dash", "shield", "heal", "dash"];
     this.noRareStreak = 0;
 
-    // Systems 
+    // Systems
     this.turnManager = new TurnManager(this);
     this.lootTable   = new LootTable();
     this.cardSystem  = new CardSystem(this);
     this.shopSystem  = new ShopSystem(this);
+    this.sfx         = new SoundManager(this);
 
     //  Board 
     this.board = new Board(this, {
@@ -83,13 +89,19 @@ export default class GameScene extends Phaser.Scene {
 
     // Kill callback = gold, boss bar, kill count
     this.board.onKillCallback = (enemy) => {
-      let gold = GOLD_TABLE[enemy.type] ?? 4;
+      let gold = GOLD_TABLE[enemy.type] ?? 8;
       if (enemy.modifier?.id === "elite")   gold = Math.floor(gold * 1.5);
-      if (enemy.modifier?.id === "armored") gold += 2;
-      if (enemy.isBoss) gold += 30;
+      if (enemy.modifier?.id === "armored") gold += 5;
+      if (enemy.modifier?.id === "vicious") gold += 3;
+      if (enemy.isBoss) gold += 50;
+      // 35% chance of a small bonus coin drop
+      if (Math.random() < 0.35) gold += Math.floor(Math.random() * 6) + 2;
       this.addGold(gold);
       this.killCount += 1;
       this.updateEnemyCountUI();
+      // Death sound / small shake
+      this.sfx.playDeath();
+      this.cameras.main.shake(90, 0.006);
       // Update boss bar if alive
       if (enemy.isBoss) this.clearBossBar();
     };
@@ -154,7 +166,7 @@ export default class GameScene extends Phaser.Scene {
     // Divider
     this.add.rectangle(886, 268, 280, 1, 0x252535);
 
-    // END TURN button (large, prominent)
+    // END TURN button 
     this.endTurnBtn = this.add.rectangle(886, 312, 216, 62, 0x112211)
       .setStrokeStyle(3, 0x44ee88).setInteractive();
     this.add.text(886, 312, "END TURN\n[SPACE]", {
@@ -165,8 +177,11 @@ export default class GameScene extends Phaser.Scene {
     this.endTurnBtn.on("pointerdown", () => {
       if (this.isGameOver || this.inReward) return;
       if (!this.isPlayerTurn) return;
+      this.sfx.playEndTurn();
       while (this.hand.length > 0) this.discardPile.push(this.hand.pop());
+      this._handScrollOffset = 0;
       this.cardSystem.renderHand();
+      this.updateDeckPanel();
       this.clearThreatMap();
       this.turnManager.endPlayerTurn();
     });
@@ -174,8 +189,11 @@ export default class GameScene extends Phaser.Scene {
     this.input.keyboard.on("keydown-SPACE", () => {
       if (this.isGameOver || this.inReward) return;
       if (!this.isPlayerTurn) return;
+      this.sfx.playEndTurn();
       while (this.hand.length > 0) this.discardPile.push(this.hand.pop());
+      this._handScrollOffset = 0;
       this.cardSystem.renderHand();
+      this.updateDeckPanel();
       this.clearThreatMap();
       this.turnManager.endPlayerTurn();
     });
@@ -188,6 +206,9 @@ export default class GameScene extends Phaser.Scene {
     deckBtn.on("pointerout",   () => deckBtn.setFillStyle(0x0e0e22));
     deckBtn.on("pointerdown", () => this.toggleDeckViewer());
 
+    // Mini deck panel 
+    this.createDeckPanel();
+
     // Hint text
     this.add.text(10, 738, "Orange = attack  •  Green = move  •  SPACE = end turn", {
       fontSize: "11px", color: "#333344",
@@ -198,7 +219,39 @@ export default class GameScene extends Phaser.Scene {
     this.bossBarFill = this.add.rectangle(105, 26, 558, 16, 0xff2244).setOrigin(0, 0.5).setDepth(11).setVisible(false);
     this.bossBarText = this.add.text(384, 14, "", { fontSize: "12px", color: "#ffffff", align: "center" }).setOrigin(0.5, 0).setDepth(12).setVisible(false);
 
+    // Music start dungeon track boss track swaps in on boss floors
+    this._musicTrack = null;
+    this._playMusic("music_dungeon");
+
     this.turnManager.startPlayerTurn();
+  }
+
+  // Music helpers
+  _playMusic(key) {
+    if (this._musicTrack) {
+      this._musicTrack.stop();
+      this._musicTrack.destroy();
+    }
+    this._musicTrack = this.sound.add(key, { loop: true, volume: 0.5 });
+    this._musicTrack.play();
+  }
+
+  _fadeToMusic(key) {
+    if (this._musicTrack) {
+      this.tweens.add({
+        targets: this._musicTrack,
+        volume: 0,
+        duration: 800,
+        onComplete: () => {
+          this._musicTrack.stop();
+          this._musicTrack.destroy();
+          this._musicTrack = null;
+          this._playMusic(key);
+        },
+      });
+    } else {
+      this._playMusic(key);
+    }
   }
 
   // Encounter management 
@@ -217,17 +270,27 @@ export default class GameScene extends Phaser.Scene {
   isEliteFloor() { return this.currentRoomType === "elite"; }
 
   spawnBossEncounter() {
-    const hp     = 10 + this.floor * 2;
-    const boss   = this.board.spawnEnemy(
-      { type: "QUEEN", hp, maxHp: hp, atk: 3, color: 0xcc0055, label: "Q★", modifier: { id: "boss", suffix: "★" } },
+    if (this.floor >= 10 && this.floor % 10 === 0) {
+      this._spawnRookCommander();
+    } else {
+      this._spawnBlackQueen();
+    }
+  }
+
+  _spawnBlackQueen() {
+    const hp   = 10 + this.floor * 2;
+    const boss = this.board.spawnEnemy(
+      { type: "QUEEN", hp, maxHp: hp, atk: 3, shield: 0, modifier: { id: "boss", suffix: "★" } },
       Math.floor(this.board.gridSize / 2), 1
     );
     if (boss) {
       boss.isBoss = true;
       this.activeBoss = boss;
-      this.showBossBar(boss);
+      this.showBossBar(boss, "THE BLACK QUEEN");
+      this.sfx.playBossEntrance();
+      this.cameras.main.shake(400, 0.018);
+      this._fadeToMusic("music_boss");
     }
-    // Minion guards
     const guards = [buildEnemy("ROOK", this.floor), buildEnemy("ROOK", this.floor)];
     this.board.spawnEnemy(guards[0], 2, 2);
     this.board.spawnEnemy(guards[1], this.board.gridSize - 3, 2);
@@ -236,8 +299,36 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  _spawnRookCommander() {
+    const hp   = 20 + this.floor * 3;
+    // The commander is a king-type visually but uses ROOK AI 
+    const boss = this.board.spawnEnemy(
+      { type: "ROOK", hp, maxHp: hp, atk: 4, shield: 3, modifier: { id: "boss", suffix: "☆" } },
+      Math.floor(this.board.gridSize / 2), 0
+    );
+    if (boss) {
+      boss.isBoss = true;
+      this.activeBoss = boss;
+      this.showBossBar(boss, "THE ROOK COMMANDER");
+      this.sfx.playBossEntrance();
+      this.cameras.main.shake(500, 0.025);
+      this._fadeToMusic("music_boss");
+    }
+    // 4 rook minions in a line
+    const cols = [1, 3, 5, 7];
+    for (const cx of cols) {
+      const rook = buildEnemy("ROOK", this.floor);
+      rook.atk += 1;
+      this.board.spawnEnemy(rook, cx, 1);
+    }
+    // Heavy flank bishops
+    this.board.spawnEnemy(buildEnemy("BISHOP", this.floor), 0, 2);
+    this.board.spawnEnemy(buildEnemy("BISHOP", this.floor), this.board.gridSize - 1, 2);
+  }
+
   // Boss HP bar 
-  showBossBar(boss) {
+  showBossBar(boss, name = "THE BLACK QUEEN") {
+    this._bossBarName = name;
     this.bossBarBg.setVisible(true);
     this.bossBarFill.setVisible(true);
     this.bossBarText.setVisible(true);
@@ -248,7 +339,8 @@ export default class GameScene extends Phaser.Scene {
     if (!boss || !this.bossBarFill) return;
     const pct = Math.max(0, boss.hp / boss.maxHp);
     this.bossBarFill.setScale(pct, 1);
-    this.bossBarText.setText(`THE BLACK QUEEN  ${boss.hp}/${boss.maxHp}`);
+    const name = this._bossBarName ?? "BOSS";
+    this.bossBarText.setText(`${name}  ${boss.hp}/${boss.maxHp}`);
   }
 
   clearBossBar() {
@@ -270,13 +362,81 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  // Roguelike loop 
+  // Brief animated "FLOOR CLEARED" 
+  _showFloorClearSplash(callback) {
+    const label = this.add.text(450, 300, "FLOOR CLEARED", {
+      fontSize: "54px", color: "#ffdd44",
+      stroke: "#000000", strokeThickness: 5, fontStyle: "bold",
+    }).setOrigin(0.5).setDepth(160).setAlpha(0).setScale(0.5);
+
+    this.tweens.add({
+      targets: label,
+      alpha: 1, scaleX: 1, scaleY: 1,
+      duration: 260,
+      ease: "Back.easeOut",
+      onComplete: () => {
+        this.time.delayedCall(600, () => {
+          this.tweens.add({
+            targets: label,
+            alpha: 0, scaleX: 1.3, scaleY: 1.3,
+            duration: 240,
+            ease: "Power2",
+            onComplete: () => { label.destroy(); callback(); },
+          });
+        });
+      },
+    });
+  }
+
+  // Dramatic boss intro overlay 
+  _showBossIntro(bossName, callback) {
+    this.inReward = true;
+    const bg = this.add.rectangle(450, 300, 900, 600, 0x000000, 0).setDepth(170).setInteractive();
+    const line = this.add.rectangle(450, 300, 0, 3, 0xff2244).setDepth(172);
+    const nameText = this.add.text(450, 270, bossName, {
+      fontSize: "58px", color: "#ff2244",
+      stroke: "#000000", strokeThickness: 6, fontStyle: "bold",
+    }).setOrigin(0.5).setDepth(173).setAlpha(0);
+    const subText = this.add.text(450, 340, "PREPARE YOURSELF", {
+      fontSize: "22px", color: "#ffaaaa", letterSpacing: 8,
+    }).setOrigin(0.5).setDepth(173).setAlpha(0);
+
+    this.tweens.add({ targets: bg, fillAlpha: 0.88, duration: 300, ease: "Power2",
+      onComplete: () => {
+        this.tweens.add({ targets: line, width: 700, duration: 350, ease: "Power2",
+          onComplete: () => {
+            this.tweens.add({ targets: nameText, alpha: 1, duration: 200, ease: "Power2" });
+            this.time.delayedCall(200, () => {
+              this.tweens.add({ targets: subText, alpha: 1, duration: 300, ease: "Power2" });
+              this.time.delayedCall(1400, () => {
+                this.tweens.add({ targets: [bg, line, nameText, subText], alpha: 0, duration: 350,
+                  onComplete: () => {
+                    bg.destroy(); line.destroy(); nameText.destroy(); subText.destroy();
+                    this.inReward = false;
+                    callback();
+                  },
+                });
+              });
+            });
+          },
+        });
+      },
+    });
+  }
+
   onVictory() {
     this.inReward     = true;
     this.isPlayerTurn = false;
     this.board.clearHighlights();
     this.board.renderWalls();
     this.clearBossBar();
+    this.sfx.playVictory();
+    this.cameras.main.shake(180, 0.008);
+    // Fade back to dungeon music after a boss kill
+    if (this.isBossFloor()) this._fadeToMusic("music_dungeon");
+
+    // Floor clear splash, then proceed to reward
+    this._showFloorClearSplash(() => {
 
     // Card reward
     const rewardTable = this.isBossFloor() ? "reward_elite"
@@ -309,19 +469,28 @@ export default class GameScene extends Phaser.Scene {
           this.currentRoomType = chosenType;
           this.updateFloorUI();
           this.resetEncounter();
-          if (!this.isGameOver) this.turnManager.startPlayerTurn();
+          // Show boss intro before starting the turn on boss floors
+          if (this.isBossFloor()) {
+            this._showBossIntro(this._bossBarName ?? "BOSS", () => {
+              if (!this.isGameOver) this.turnManager.startPlayerTurn();
+            });
+          } else {
+            if (!this.isGameOver) this.turnManager.startPlayerTurn();
+          }
         });
       });
-    });
+    }); // end showReward
+    }); // end floor clear splash
   }
 
   _generateRoomOptions() {
-    if (this.floor % 5 === 4) return ["boss"]; // next floor is boss
+    if (this.floor % 5 === 4) return ["rest", "shrine", "boss"]; 
     let pool = [
       "fight","fight","fight","fight","fight",
       "elite","elite",
       "rest","rest","rest",
       "shop","shop",
+      "treasure","treasure",
     ];
     if (this.floor < 2) pool = pool.filter((t) => t !== "elite");
     const picked = new Set();
@@ -365,6 +534,10 @@ export default class GameScene extends Phaser.Scene {
       this.showRestOverlay(callback);
     } else if (type === "shop") {
       this.shopSystem.show(callback);
+    } else if (type === "shrine") {
+      this.showShrineOverlay(callback);
+    } else if (type === "treasure") {
+      this.showTreasureOverlay(callback);
     } else {
       callback();
     }
@@ -374,18 +547,150 @@ export default class GameScene extends Phaser.Scene {
     const heal = 3;
     this.king.hp = Math.min(this.king.hp + heal, this.king.maxHp);
     this.updateHPUI();
-    this.addGold(15); // small bonus for resting
+    this.sfx.playHeal();
+    const { px, py } = this.board.worldPos(this.king.x, this.king.y);
+    this.spawnFloatingText(px, py - 20, `+${heal} HP`, "#44ff88", "22px");
+    this.addGold(30); // rest gold bonus
 
     const objs  = [];
     const bg    = this.add.rectangle(450, 300, 900, 600, 0x002211, 0.88).setDepth(150).setInteractive();
     const title = this.add.text(450, 195, "♥  REST POINT", { fontSize: "40px", color: "#44ff88" }).setOrigin(0.5, 0).setDepth(151);
-    const info  = this.add.text(450, 265, `Healed ${heal} HP  |  HP: ${this.king.hp}/${this.king.maxHp}  |  +15g`, {
+    const info  = this.add.text(450, 265, `Healed ${heal} HP  |  HP: ${this.king.hp}/${this.king.maxHp}  |  +30g`, {
       fontSize: "20px", color: "#ffffff",
     }).setOrigin(0.5, 0).setDepth(151);
     const btn   = this.add.rectangle(450, 370, 220, 60, 0x115511).setStrokeStyle(2, 0x44ff88).setInteractive().setDepth(151);
     const btnLbl = this.add.text(381, 358, "Continue →", { fontSize: "20px", color: "#44ff88" }).setDepth(152);
     objs.push(bg, title, info, btn, btnLbl);
     btn.on("pointerdown", () => { objs.forEach((o) => o.destroy()); callback(); });
+  }
+
+  showTreasureOverlay(callback) {
+    const objs = [];
+    // Gold reward scales with floor
+    const goldAmount = 30 + this.floor * 10;
+    this.addGold(goldAmount);
+    this.sfx.playGold();
+
+    const bg    = this.add.rectangle(450, 300, 900, 600, 0x1a1100, 0.92).setDepth(150).setInteractive();
+    const title = this.add.text(450, 120, "💰  TREASURE ROOM", { fontSize: "36px", color: "#ffdd44" }).setOrigin(0.5, 0).setDepth(151);
+    const goldT = this.add.text(450, 185, `+${goldAmount} GOLD`, { fontSize: "28px", color: "#ffcc22", fontStyle: "bold" }).setOrigin(0.5, 0).setDepth(151);
+    objs.push(bg, title, goldT);
+
+    // Pick one of three random bonuses
+    const bonuses = [
+      { label: "Extra Gold",    icon: "★", desc: `+${goldAmount} more gold!`,     apply: () => this.addGold(goldAmount) },
+      { label: "Heal",          icon: "♥", desc: "Heal 3 HP.",                    apply: () => { this.king.hp = Math.min(this.king.hp + 3, this.king.maxHp); this.updateHPUI(); this.sfx.playHeal(); } },
+      { label: "Shield Cache",  icon: "Ω", desc: "Gain 4 shield.",                apply: () => { this.shield += 4; this.updateShieldUI(); } },
+      { label: "Energy Shard",  icon: "⚡", desc: "+1 max energy this run.",       apply: () => { this.maxEnergy += 1; this.energy = Math.min(this.energy + 1, this.maxEnergy); this.updateEnergyUI(); } },
+      { label: "Armory",        icon: "⚔", desc: "King deals +1 damage.",         apply: () => { this.kingAtk = (this.kingAtk ?? 1) + 1; } },
+      { label: "Draw Power",    icon: "✦", desc: "Draw 2 bonus cards next turn.",  apply: () => { this.bonusDrawNextTurn = (this.bonusDrawNextTurn ?? 0) + 2; } },
+    ];
+    // Shuffle and take 3
+    for (let i = bonuses.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [bonuses[i], bonuses[j]] = [bonuses[j], bonuses[i]];
+    }
+    const choices = bonuses.slice(0, 3);
+
+    const subT = this.add.text(450, 255, "Also choose a bonus:", { fontSize: "17px", color: "#aaaaaa" }).setOrigin(0.5, 0).setDepth(151);
+    objs.push(subT);
+
+    choices.forEach((b, i) => {
+      const x = 180 + i * 220;
+      const y = 390;
+      const box  = this.add.rectangle(x, y, 200, 150, 0x332200).setStrokeStyle(2, 0xffaa00).setInteractive().setDepth(151);
+      const icon = this.add.text(x, y - 55, b.icon, { fontSize: "30px" }).setOrigin(0.5, 0).setDepth(152);
+      const lbl  = this.add.text(x, y - 16, b.label, { fontSize: "16px", color: "#ffdd44" }).setOrigin(0.5, 0).setDepth(152);
+      const desc = this.add.text(x, y + 14, b.desc, { fontSize: "13px", color: "#cccccc", align: "center", wordWrap: { width: 185 } }).setOrigin(0.5, 0).setDepth(152);
+      box.on("pointerover",  () => box.setStrokeStyle(3, 0xffffff));
+      box.on("pointerout",   () => box.setStrokeStyle(2, 0xffaa00));
+      box.on("pointerdown",  () => {
+        objs.forEach((o) => o.destroy());
+        b.apply();
+        callback();
+      });
+      objs.push(box, icon, lbl, desc);
+    });
+  }
+
+  showShrineOverlay(callback) {
+    const objs = [];
+    const bg    = this.add.rectangle(450, 300, 900, 600, 0x110022, 0.92).setDepth(150).setInteractive();
+    const title = this.add.text(450, 100, "✦  SHRINE OF BLESSINGS", { fontSize: "32px", color: "#cc88ff" }).setOrigin(0.5, 0).setDepth(151);
+    const sub   = this.add.text(450, 148, "Choose one blessing before the boss.", { fontSize: "16px", color: "#aaaacc" }).setOrigin(0.5, 0).setDepth(151);
+    objs.push(bg, title, sub);
+
+    const blessings = [
+      {
+        icon: "♥",  label: "Vitality",   color: 0x335533, borderColor: 0x44ff88,
+        desc: "Heal to full HP\n+ gain 2 max HP",
+        apply: (scene) => {
+          scene.king.maxHp += 2;
+          scene.king.hp = scene.king.maxHp;
+          scene.updateHPUI();
+          scene.sfx.playHeal();
+          const { px, py } = scene.board.worldPos(scene.king.x, scene.king.y);
+          scene.spawnFloatingText(px, py - 20, "FULL HEAL!", "#44ff88", "22px");
+        },
+      },
+      {
+        icon: "Ω",  label: "Bulwark",    color: 0x222255, borderColor: 0x88aaff,
+        desc: "Gain 5 shield\n+ 1 permanent shield per turn",
+        apply: (scene) => {
+          scene.shield += 5;
+          scene.bonusStartShield = (scene.bonusStartShield ?? 0) + 1;
+          scene.updateShieldUI();
+          scene.sfx.playShieldBlock();
+          const { px, py } = scene.board.worldPos(scene.king.x, scene.king.y);
+          scene.spawnFloatingText(px, py - 20, "+5 SHIELD", "#88aaff", "22px");
+        },
+      },
+      {
+        icon: "⚡", label: "Surge",      color: 0x443300, borderColor: 0xffcc44,
+        desc: "Gain +1 max energy\n+ heal 2 HP",
+        apply: (scene) => {
+          scene.maxEnergy += 1;
+          scene.energy = Math.min(scene.energy + 1, scene.maxEnergy);
+          scene.updateEnergyUI();
+          scene.king.hp = Math.min(scene.king.hp + 2, scene.king.maxHp);
+          scene.updateHPUI();
+          scene.sfx.playCardPlay();
+        },
+      },
+      {
+        icon: "⚔",  label: "Wrath",     color: 0x441111, borderColor: 0xff4444,
+        desc: "King deals +1 damage\n+ gain 3 gold per kill (this run)",
+        apply: (scene) => {
+          scene.kingAtk = (scene.kingAtk ?? 1) + 1;
+          const prev = scene.board.onKillCallback;
+          scene.board.onKillCallback = (enemy) => {
+            if (prev) prev(enemy);
+            scene.gold += 3;
+            scene.updateGoldUI();
+          };
+          scene.sfx.playAttack();
+          const { px, py } = scene.board.worldPos(scene.king.x, scene.king.y);
+          scene.spawnFloatingText(px, py - 20, "+1 ATK", "#ff4444", "22px");
+        },
+      },
+    ];
+
+    blessings.forEach((b, i) => {
+      const x = 130 + i * 185;
+      const y = 300;
+      const box = this.add.rectangle(x, y, 168, 200, b.color).setStrokeStyle(3, b.borderColor).setInteractive().setDepth(151);
+      const icon = this.add.text(x, y - 82, b.icon, { fontSize: "34px" }).setOrigin(0.5, 0).setDepth(152);
+      const lbl  = this.add.text(x, y - 40, b.label, { fontSize: "17px", color: "#ffffff" }).setOrigin(0.5, 0).setDepth(152);
+      const desc = this.add.text(x, y - 8, b.desc, { fontSize: "12px", color: "#cccccc", align: "center", wordWrap: { width: 155 } }).setOrigin(0.5, 0).setDepth(152);
+      box.on("pointerover", () => box.setStrokeStyle(4, 0xffffff));
+      box.on("pointerout",  () => box.setStrokeStyle(3, b.borderColor));
+      box.on("pointerdown", () => {
+        objs.forEach((o) => o.destroy());
+        b.apply(this);
+        callback();
+      });
+      objs.push(box, icon, lbl, desc);
+    });
   }
 
   resetEncounter() {
@@ -420,8 +725,13 @@ export default class GameScene extends Phaser.Scene {
     this.energy = this.maxEnergy;
     this.updateEnergyUI();
 
-    this.drawHand(3);
+    this._playedThisTurn = new Set();
+    this._handScrollOffset = 0;
+    const bonusDraw = this.bonusDrawNextTurn ?? 0;
+    this.bonusDrawNextTurn = 0;
+    this.drawHand(5 + bonusDraw);
     this.cardSystem.renderHand();
+    this.updateDeckPanel();
     this.showThreatMap();
     this.showLegalMovesForKing();
   }
@@ -462,6 +772,7 @@ export default class GameScene extends Phaser.Scene {
       if (this.movesRemaining <= 0)         return;
 
       if (move.capture) {
+        this.sfx.playAttack();
         const killed = this.board.damageAt(move.x, move.y, this.kingAtk, this.king.x, this.king.y);
         this.board.movePiece(this.king, move.x, move.y);
         this.updateEnemyCountUI();
@@ -470,6 +781,7 @@ export default class GameScene extends Phaser.Scene {
           if (this.inReward || this.isGameOver) return;
         }
       } else {
+        this.sfx.playMove();
         this.board.movePiece(this.king, move.x, move.y);
       }
 
@@ -485,7 +797,7 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  // Threat map (shown during player turn) 
+  // Threat map 
   showThreatMap() {
     this.threatObjects = [];
     const visited = new Set();
@@ -550,16 +862,24 @@ export default class GameScene extends Phaser.Scene {
         if (consumeWeakened(enemy)) continue;
 
         const dmg = enemy.atk ?? 1;
+        const { px: kpx, py: kpy } = this.board.worldPos(this.king.x, this.king.y);
         if (this.shield > 0) {
           this.shield = Math.max(0, this.shield - dmg);
           this.updateShieldUI();
+          this.spawnFloatingText(kpx, kpy - 20, `BLOCKED!`, "#88ccff", "18px");
+          this.sfx.playShieldBlock();
         } else {
           this.king.hp -= dmg;
           this.updateHPUI();
-          this.king.sprite.setTint(0xffffff);
-          this.time.delayedCall(80, () => {
+          this.king.sprite.setTint(0xff4444);
+          this.time.delayedCall(120, () => {
             if (this.king.sprite?.active) this.king.sprite.clearTint();
           });
+          this.spawnFloatingText(kpx, kpy - 20, `-${dmg}`, "#ff2222", "24px");
+          this.sfx.playPlayerHurt();
+          // Screen shake 
+          const shakeIntensity = enemy.isBoss ? 0.022 : 0.012;
+          this.cameras.main.shake(220, shakeIntensity);
           if (this.king.hp <= 0) { this.gameOver(); return; }
         }
       } else {
@@ -572,7 +892,74 @@ export default class GameScene extends Phaser.Scene {
     this.updateEnemyCountUI();
   }
 
-  // Deck viewer 
+  // Mini deck panel 
+  createDeckPanel() {
+    const RC = { Common: "#ffffff", Uncommon: "#44ff88", Rare: "#4499ff", Epic: "#cc44ff", Legendary: "#ff8800" };
+    this._deckPanelRC = RC;
+
+    // Static divider & section header
+    this.add.rectangle(886, 408, 280, 1, 0x252535);
+    this.add.text(735, 416, "IN HAND", { fontSize: "11px", color: "#555566" });
+    this._deckPanelHandCount = this.add.text(802, 416, "(0)", { fontSize: "11px", color: "#444455" });
+
+    // Dynamic card rows 
+    this._deckPanelCardRows = [];
+
+    // Divider below cards
+    this._deckPanelDivider = this.add.rectangle(886, 530, 280, 1, 0x252535);
+
+    // Draw / discard counts
+    this._deckPanelDrawText    = this.add.text(735, 537, "DRAW  0",  { fontSize: "11px", color: "#4466aa" });
+    this._deckPanelDiscardText = this.add.text(840, 537, "DISC  0",  { fontSize: "11px", color: "#775533" });
+  }
+
+  updateDeckPanel() {
+    // Rebuild dynamic card rows
+    if (this._deckPanelCardRows) {
+      this._deckPanelCardRows.forEach((o) => o.destroy());
+      this._deckPanelCardRows = [];
+    }
+
+    const RC = this._deckPanelRC ?? {};
+
+    if (this.hand.length === 0) {
+      const t = this.add.text(886, 466, "(empty)", {
+        fontSize: "12px", color: "#333344", align: "center",
+      }).setOrigin(0.5, 0);
+      this._deckPanelCardRows.push(t);
+    } else {
+      this.hand.forEach((cardId, i) => {
+        const card = CardList.find((c) => c.id === cardId);
+        if (!card) return;
+        const y = 433 + i * 24;
+        const canAfford = this.energy >= card.cost;
+        const nameColor = canAfford ? (RC[card.rarity] ?? "#ffffff") : "#444455";
+
+        const pip = this.add.circle(745, y, 8, canAfford ? 0x1e3a6e : 0x141420)
+          .setStrokeStyle(1, canAfford ? 0x3366bb : 0x2a2a3a);
+        const costT = this.add.text(745, y, `${card.cost}`, {
+          fontSize: "10px", color: canAfford ? "#88aaff" : "#444466",
+        }).setOrigin(0.5);
+        const nameT = this.add.text(758, y - 7, card.name, {
+          fontSize: "11px", color: nameColor,
+        });
+
+        this._deckPanelCardRows.push(pip, costT, nameT);
+      });
+    }
+
+    // Reposition the bottom divider based on how many cards
+    const cardAreaBottom = this.hand.length > 0 ? 433 + this.hand.length * 24 + 8 : 490;
+    this._deckPanelDivider?.setY(cardAreaBottom + 4);
+    this._deckPanelDrawText?.setY(cardAreaBottom + 11);
+    this._deckPanelDiscardText?.setY(cardAreaBottom + 11);
+
+    this._deckPanelHandCount?.setText(`(${this.hand.length})`);
+    this._deckPanelDrawText?.setText(`DRAW  ${this.drawPile.length}`);
+    this._deckPanelDiscardText?.setText(`DISC  ${this.discardPile.length}`);
+  }
+
+  // Deck viewer
   toggleDeckViewer() {
     if (this._deckViewerObjs?.length) {
       this._deckViewerObjs.forEach((o) => o.destroy());
@@ -619,12 +1006,23 @@ export default class GameScene extends Phaser.Scene {
     this._deckViewerObjs.push(closeBtn, closeLbl);
   }
 
-  // Game Over 
+  // Game Over
   gameOver() {
     this.isGameOver = true;
     this.inReward   = false;
     this.clearThreatMap();
     this.clearBossBar();
+    // Fade out music on death
+    if (this._musicTrack) {
+      this.tweens.add({
+        targets: this._musicTrack,
+        volume: 0,
+        duration: 1200,
+        onComplete: () => { this._musicTrack?.stop(); },
+      });
+    }
+    this.sfx.playGameOver();
+    this.cameras.main.shake(500, 0.025);
 
     const bg    = this.add.rectangle(450, 300, 900, 600, 0x000000, 0.85).setDepth(200);
     const title = this.add.text(450, 160, "GAME OVER", { fontSize: "56px", color: "#ff4444" }).setOrigin(0.5, 0).setDepth(201);
@@ -644,10 +1042,34 @@ export default class GameScene extends Phaser.Scene {
     this.add.existing(stats);
   }
 
-  // Gold 
+  // Floating text popup 
+  spawnFloatingText(wx, wy, text, color = "#ff4444", fontSize = "22px") {
+    const t = this.add.text(wx, wy, text, {
+      fontSize,
+      color,
+      stroke: "#000000",
+      strokeThickness: 3,
+      fontStyle: "bold",
+    }).setOrigin(0.5).setDepth(60);
+
+    this.tweens.add({
+      targets: t,
+      y: wy - 60,
+      alpha: 0,
+      duration: 850,
+      ease: "Power2",
+      onComplete: () => t.destroy(),
+    });
+  }
+
+  // Gold
   addGold(amount) {
     this.gold += amount;
     this.updateGoldUI();
+    // Floating gold text above the king
+    const { px, py } = this.board.worldPos(this.king.x, this.king.y);
+    this.spawnFloatingText(px, py - 30, `+${amount}g`, "#ffdd44", "18px");
+    this.sfx.playGold();
   }
 
   // UI helpers 
@@ -667,6 +1089,15 @@ export default class GameScene extends Phaser.Scene {
   updateTurnUI()       { this.turnText?.setText(`TURN: ${this.turnManager.state}`); }
   updateMovesUI()      { this.movesText?.setText(`MOVES: ${this.movesRemaining}`); }
   updateEnergyUI() {
+    // Rebuild pips if max energy changed 
+    if (this.energyPips && this.energyPips.length !== this.maxEnergy) {
+      this.energyPips.forEach((p) => p.destroy());
+      this.energyPips = [];
+      for (let i = 0; i < this.maxEnergy; i++) {
+        const pip = this.add.circle(749 + i * 28, 244, 10, 0x3366cc).setStrokeStyle(2, 0x112244);
+        this.energyPips.push(pip);
+      }
+    }
     this.energyPips?.forEach((pip, i) => {
       pip.setFillStyle(i < this.energy ? 0x3366cc : 0x151525);
     });

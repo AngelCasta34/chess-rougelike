@@ -1,6 +1,6 @@
 # Chess Roguelike
 
-https://angelcasta34.github.io/chess-rougelike/ 
+https://angelcasta34.github.io/chess-rougelike/
 
 A roguelike deckbuilder built with Phaser 3 where you play as a King piece navigating procedurally generated chess encounters. Each run is unique — enemy waves, card rewards, board layouts, and room sequences are all generated at runtime.
 
@@ -20,7 +20,8 @@ Then open `http://localhost:5173` in your browser.
 ## How to Play
 
 - **Click a highlighted tile** to move your King (green border = move, orange border = attack)
-- **Click a card** in your hand to play it (costs energy)
+- **Click a card** in your hand to play it (costs energy). Each card can only be played once per turn
+- **Scroll through your hand** with the mouse wheel or the ◀ / ▶ arrow buttons at the bottom
 - **SPACE or END TURN button** to end your turn and let enemies move
 - Clear all enemies to advance — pick a new room, earn a card reward
 - Survive as many floors as possible
@@ -49,7 +50,7 @@ The original C# `GenerateLoot` method works in 6 steps:
 
 #### The Implementation
 ```js
-// Step 1 — build rarity map 
+// Step 1 — build rarity map
 _buildRarityMap(candidates) {
   const map = {};
   for (const card of candidates) {
@@ -59,7 +60,7 @@ _buildRarityMap(candidates) {
   return map;
 }
 
-// Steps 2–4 — weighted rarity roll 
+// Steps 2–4 — weighted rarity roll
 _rollRarity(weights) {
   let weightedSum = 0;
   for (const w of Object.values(weights)) weightedSum += w;
@@ -141,7 +142,59 @@ Takes the generated enemy stat blocks and places them on the board using one of 
 **File:** `src/board/Board.js`, `src/scenes/GameScene.js`
 
 - **Wall generation**: Each room places `6 + floor*2` walls (capped at 22) in random positions, with safe zones around the king start and enemy spawn rows
-- **Room map**: After each fight, 3 room type options are randomly weighted from: Fight, Elite, Rest, Shop — with Boss forced every 5th floor
+- **Room map**: After each fight, 3 room type options are randomly weighted from: Fight, Elite, Rest, Shop, Treasure — with Boss forced every 5th floor and a Shrine before the boss
+
+---
+
+## Card System
+
+**File:** `src/cards/CardList.js`, `src/cards/CardSystem.js`
+
+The game has 40+ cards spanning 5 rarities. Cards are drawn into a scrollable hand at the bottom of the screen (4 visible at a time). Each card can only be played **once per turn** — played cards show a red "USED" badge and are grayed out until the next turn.
+
+### Card Categories
+
+| Category | Examples |
+| --- | --- |
+| Movement | Dash, Blitz, Charge, Momentum (permanent) |
+| Defense | Shield, Fortify, Iron Skin, Shield Bash, Emergency |
+| Healing | Heal, Mend |
+| Draw / Energy | Study (draw 2), Meditate (discard/draw 5), Scry (draw 3 + energy), Gambit (risk HP for energy) |
+| Offense | Cleave (2 dmg adjacent), Vengeance, Overload (AoE + burn), Plague (burn3 in range), Time Stop (freeze all) |
+| Utility | Gold Rush (+20g), Push, Weaken |
+| Permanents | Swift Crown, Iron Will, Resilient (+maxHP), Bloodthirst (kill → energy), Momentum (+moves/-max energy) |
+
+### Shop Prices
+
+| Rarity | Buy | Remove |
+| --- | --- | --- |
+| Common | 20g | 25g |
+| Uncommon | 38g | 25g |
+| Rare | 60g | 25g |
+| Epic | 90g | 25g |
+| Legendary | 140g | 25g |
+
+---
+
+## Room Types
+
+| Room | Description |
+| --- | --- |
+| Fight | Clear enemies, earn a card reward |
+| Elite | Harder enemies, better card reward |
+| Rest | Heal 3 HP + 30 gold, no combat |
+| Shop | Buy or remove cards |
+| Treasure | Gold scaled to floor + choose a bonus blessing |
+| Shrine | Choose a blessing before the boss floor |
+| Boss | Boss fight every 5th floor — Legendary reward |
+
+---
+
+## Audio
+
+- **Dungeon music**: "Big Helmet" plays during normal and elite rooms
+- **Boss music**: "Never Meant to Belong" fades in during boss fights, fades back to dungeon music on victory
+- Music cross-fades smoothly using Phaser tweens on volume
 
 ---
 
@@ -152,8 +205,8 @@ src/
   board/
     Board.js                  # Board rendering, piece movement, combat
   cards/
-    CardList.js               # All card definitions and effects
-    CardSystem.js             # Hand rendering, reward screen
+    CardList.js               # All card definitions and effects (40+ cards)
+    CardSystem.js             # Scrollable hand rendering, reward screen, play-once enforcement
   generators/
     EnemyFactory.js           # Budget-based enemy stat generation
     LootTable.js              # Weighted rarity card reward generation (C# port)
@@ -163,8 +216,12 @@ src/
     EnemyAI.js                # Chess movement logic for all 5 piece types
     EncounterTemplates.js     # Procedural enemy placement strategies
     ShopSystem.js             # Buy/remove cards shop overlay
+    SoundManager.js           # Procedural Web Audio SFX
     StatusEffects.js          # Burning, frozen, weakened status effects
     TurnManager.js            # Player/enemy turn sequencing
+assets/
+  music/                      # Background music tracks (MP3)
+  chessPieces/                # Piece sprites
 ```
 
 ---
@@ -220,7 +277,7 @@ Boss encounter triggered every 5th floor — Queen piece with elevated HP and AT
 - One of 5 placement strategies selected per room
 - Wall count and position re-randomized each room
 - Card reward pool filtered by tag (movement/defense/any) with weighted rarity rolls and pity tracking
-- Room path choices (Fight / Elite / Rest / Shop) weighted randomly after each victory
+- Room path choices (Fight / Elite / Rest / Shop / Treasure) weighted randomly after each victory
 
 ---
 
@@ -238,7 +295,7 @@ Boss encounter triggered every 5th floor — Queen piece with elevated HP and AT
 
 **What it is:** Enemy budget, HP, and ATK scale with floor number, but the card pool and player HP do not scale. A player who picks weak cards early may hit a wall around floor 6–8 where enemies are significantly tankier with no recovery path. Roguelike balance is hard to tune without playtesting data. An unwinnable mid-run state that isn't the player's fault is a bad experience.
 
-**Plan to address:** tune the Elite loot table to offer stronger cards sooner, and add a floor-aware difficulty cap on modifier stacking so floors 1–4 remain accessible.
+**Plan to address:** Tune the Elite loot table to offer stronger cards sooner, and add a floor-aware difficulty cap on modifier stacking so floors 1–4 remain accessible.
 
 ---
 
@@ -256,14 +313,20 @@ Boss encounter triggered every 5th floor — Queen piece with elevated HP and AT
 
 - Core turn-based loop (player move → card play → end turn → enemy move)
 - All 5 chess piece AI movement types
-- 25+ cards across Common–Legendary rarity
+- 40+ cards across Common–Legendary rarity with play-once-per-turn enforcement
+- Scrollable card hand with mouse wheel and arrow navigation
 - Weighted loot table with pity system and tag filtering (C# port)
 - Budget-based enemy wave generation with 5 placement strategies
 - Procedural wall generation per room
 - Status effects (Burning, Frozen, Weakened)
 - Shop system (buy cards, remove cards)
-- Boss encounters every 5th floor
+- Treasure rooms and Shrine rooms with blessing choices
+- Boss encounters every 5th floor with boss intro and unique music
+- Background music with cross-fade (dungeon / boss tracks)
 - Full roguelike progression (floor counter, room branching, game over screen)
+- Full-window canvas scaling (Phaser Scale.FIT)
+- Sidebar deck panel showing current hand
+- Deployed to GitHub Pages
 
 ### To Complete Before Showcase
 
@@ -273,12 +336,11 @@ Boss encounter triggered every 5th floor — Queen piece with elevated HP and AT
 - [ ] Tune floor 1–5 difficulty curve based on playtesting
 - [ ] Add a win condition (e.g. defeat the Queen boss on floor 10)
 - [x] Screenshots / short video of 5+ generated runs for submission
-- [ ] Deploy to GitHub Pages so the game is playable without a local install
 
-
+---
 
 ## Tech Stack
 
-- **Phaser 3** — game framework (rendering, input, tweens, timers)
+- **Phaser 3** — game framework (rendering, input, tweens, timers, Web Audio)
 - **Vite** — dev server and bundler
 - **Vanilla JS (ES Modules)** — no additional frameworks

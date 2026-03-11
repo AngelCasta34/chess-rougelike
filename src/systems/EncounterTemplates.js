@@ -1,4 +1,4 @@
-// EncounterTemplates.js – generative wave spawning using EnemyFactory budget system
+//generative wave spawning using EnemyFactory budget system
 import { generateWave } from "../generators/EnemyFactory.js";
 
 function randInt(min, max) {
@@ -146,17 +146,66 @@ const PLACEMENT_STRATEGIES = [
       }
     },
   },
+
+  {
+    id: "ambush",
+    name: "Ambush",
+    place(scene, statBlocks) {
+      // Enemies appear in the middle rows (rows 3-5)
+      const minRow = 3;
+      const maxRow = Math.min(5, scene.board.gridSize - 3);
+      for (const stats of statBlocks) {
+        let placed = false, attempts = 0;
+        while (!placed && attempts < 200) {
+          attempts++;
+          const x = randInt(0, scene.board.gridSize - 1);
+          const y = randInt(minRow, maxRow);
+          if (scene.board.isWall(x, y) || scene.board.pieces[scene.board.key(x, y)]) continue;
+          scene.board.spawnEnemy(stats, x, y);
+          placed = true;
+        }
+      }
+    },
+  },
+
+  {
+    id: "diagonal",
+    name: "Diagonal",
+    place(scene, statBlocks) {
+      // Place enemies along a diagonal from top-left to bottom-right 
+      const gs = scene.board.gridSize;
+      for (let i = 0; i < statBlocks.length; i++) {
+        const stats = statBlocks[i];
+        let placed = false, attempts = 0;
+        while (!placed && attempts < 150) {
+          attempts++;
+          const offset = randInt(-1, 1);
+          const col    = (i * 2) % gs;
+          const row    = Math.floor((i * 2) / gs) % 3;
+          const x = Math.max(0, Math.min(gs - 1, col + offset));
+          const y = Math.max(0, Math.min(2, row));
+          if (scene.board.isWall(x, y) || scene.board.pieces[scene.board.key(x, y)]) continue;
+          scene.board.spawnEnemy(stats, x, y);
+          placed = true;
+        }
+      }
+    },
+  },
 ];
 
 // Pick a random placement strategy, weighted toward variety
-function pickStrategy() {
-  return PLACEMENT_STRATEGIES[Math.floor(Math.random() * PLACEMENT_STRATEGIES.length)];
+function pickStrategy(floor) {
+  // Ambush only available from floor 3+
+  const available = floor >= 3
+    ? PLACEMENT_STRATEGIES
+    : PLACEMENT_STRATEGIES.filter((s) => s.id !== "ambush");
+  return available[Math.floor(Math.random() * available.length)];
 }
 
 // The main encounter spawner – called from GameScene.spawnEncounter()
-export function spawnGenerativeEncounter(scene) {
-  const wave     = generateWave(scene.floor);       // stat blocks from EnemyFactory
-  const strategy = pickStrategy();                  // where to put them
+export function spawnGenerativeEncounter(scene, opts = {}) {
+  const wave     = generateWave(scene.floor, opts); // stat blocks from EnemyFactory
+  const strategy = pickStrategy(scene.floor);       // where to put them
 
   strategy.place(scene, wave);
 

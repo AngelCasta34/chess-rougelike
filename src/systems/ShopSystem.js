@@ -1,7 +1,7 @@
 import CardList from "../cards/CardList.js";
 
-const BUY_PRICE   = { Common: 30, Uncommon: 50, Rare: 80, Epic: 120, Legendary: 200 };
-const REMOVE_COST = 40;
+const BUY_PRICE   = { Common: 20, Uncommon: 38, Rare: 60, Epic: 90, Legendary: 140 };
+const REMOVE_COST = 25;
 const RC = { Common: "#ffffff", Uncommon: "#44ff88", Rare: "#4499ff", Epic: "#cc44ff", Legendary: "#ff8800" };
 const rc = (r) => RC[r] ?? "#ffffff";
 

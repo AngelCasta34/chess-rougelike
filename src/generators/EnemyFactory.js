@@ -1,5 +1,3 @@
-// EnemyFactory.js/generative enemy stat system
-
 const PIECE_DEFS = {
   PAWN:   { cost: 1, baseHp: 1, baseAtk: 1, color: 0xff5555 },
   KNIGHT: { cost: 2, baseHp: 2, baseAtk: 1, color: 0xff8c00 },
@@ -10,10 +8,12 @@ const PIECE_DEFS = {
 
 // Stat modifiers applied to individual enemies
 const MODIFIERS = [
-  { id: "armored",  suffix: "+", hpBonus: 2,  atkBonus: 0 },
-  { id: "vicious",  suffix: "!", hpBonus: 0,  atkBonus: 1 },
-  { id: "elite",    suffix: "*", hpBonus: 2,  atkBonus: 1 },
-  { id: "frail",    suffix: "-", hpBonus: -1, atkBonus: 0 }, // occasionally spawns weaker enemies for variety
+  { id: "armored",    suffix: "+", hpBonus: 2,  atkBonus: 0 },
+  { id: "vicious",    suffix: "!", hpBonus: 0,  atkBonus: 1 },
+  { id: "elite",      suffix: "*", hpBonus: 2,  atkBonus: 1 },
+  { id: "frail",      suffix: "-", hpBonus: -1, atkBonus: 0 },
+  { id: "berserker",  suffix: "»", hpBonus: -1, atkBonus: 2 }, //low HP, high damage
+  { id: "shielded",   suffix: "Ω", hpBonus: 0,  atkBonus: 0, shield: 2 }, // starts with damage shield
 ];
 
 // Piece types available at each floor tier
@@ -56,6 +56,7 @@ export function buildEnemy(type, floor) {
     maxHp:    finalHp,
     atk:      finalAtk,
     modifier: mod,
+    shield:   mod?.shield ?? 0,
     color:    def.color,
     label,
   };
@@ -79,7 +80,7 @@ export function generateWave(floor) {
     const affordable = available.filter((t) => costs[t] <= remaining);
     if (affordable.length === 0) break;
 
-    // Weighted selection: cheaper pieces are slightly more common
+    // Weighted selectioncheaper pieces are slightly more common
     // Build a small weighted pool
     const pool = [];
     for (const t of affordable) {

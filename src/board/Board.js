@@ -1,4 +1,14 @@
 // src/board/Board.js
+
+// Spark color per piece type for death burst
+const TYPE_SPARK_COLOR = {
+  PAWN:   0xff5555,
+  KNIGHT: 0xff8c00,
+  BISHOP: 0xddcc00,
+  ROOK:   0xaa44ff,
+  QUEEN:  0xff44aa,
+};
+
 export default class Board {
   constructor(scene, { gridSize = 9, tileSize = 55, origin = { x: 120, y: 80 } } = {}) {
     this.scene = scene;
@@ -146,17 +156,32 @@ export default class Board {
     const target = this.pieces[this.key(x, y)];
     if (!target || !target.isEnemy) return false;
 
+    // Enemy shield absorbs damage first
+    if (target.shield > 0) {
+      const absorbed = Math.min(target.shield, dmg);
+      target.shield -= absorbed;
+      dmg -= absorbed;
+      if (dmg <= 0) {
+        this._spawnFloatingText(target.sprite.x, target.sprite.y - 20, "SHIELD!", "#88ccff", "16px");
+        return false;
+      }
+    }
+
     target.hp -= dmg;
     this._refreshEnemyLabel(target);
 
     // Notify scene (boss HP bar, etc.)
     if (this.onEnemyDamaged) this.onEnemyDamaged(target);
 
-    // Flash white on hit
+    // Flash white on hit + impact ring
     target.sprite.setTint(0xffffff);
+    this._spawnImpactRing(target.sprite.x, target.sprite.y);
     this.scene.time.delayedCall(80, () => {
       if (target.sprite?.active) target.sprite.clearTint();
     });
+
+    // Floating damage number
+    this._spawnFloatingText(target.sprite.x, target.sprite.y - 20, `-${dmg}`, "#ff4444");
 
     if (target.hp <= 0) {
       this._destroyEnemy(target);
@@ -227,6 +252,10 @@ export default class Board {
 
     if (this.onKillCallback) this.onKillCallback(enemy);
 
+    // Death spark burst
+    const sparkColor = enemy.isBoss ? 0xffcc00 : (TYPE_SPARK_COLOR[enemy.type] ?? 0xff5555);
+    this._spawnDeathBurst(enemy.sprite.x, enemy.sprite.y, sparkColor, enemy.isBoss ? 18 : 10);
+
     // Death pop animation
     this.scene.tweens.add({
       targets:  [enemy.sprite, enemy.label],
@@ -242,7 +271,65 @@ export default class Board {
     });
   }
 
-  // Instant kill 
+  // Burst of colored spark squares on enemy death
+  _spawnDeathBurst(wx, wy, color, count = 10) {
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + Math.random() * 0.6;
+      const dist  = 20 + Math.random() * 38;
+      const tx    = wx + Math.cos(angle) * dist;
+      const ty    = wy + Math.sin(angle) * dist;
+      const size  = 3 + Math.random() * 5;
+      const spark = this.scene.add.rectangle(wx, wy, size, size, color).setDepth(56).setAlpha(0.9);
+      this.scene.tweens.add({
+        targets:  spark,
+        x:        tx,
+        y:        ty,
+        alpha:    0,
+        scaleX:   0.1,
+        scaleY:   0.1,
+        duration: 220 + Math.random() * 220,
+        ease:     "Power2",
+        onComplete: () => spark.destroy(),
+      });
+    }
+  }
+
+  // Expanding impact ring on hit
+  _spawnImpactRing(wx, wy) {
+    const ring = this.scene.add.circle(wx, wy, 8, 0xffffff, 0)
+      .setStrokeStyle(2.5, 0xffffff).setDepth(57).setAlpha(0.8);
+    this.scene.tweens.add({
+      targets:  ring,
+      scaleX:   3.5,
+      scaleY:   3.5,
+      alpha:    0,
+      duration: 180,
+      ease:     "Power2",
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  // Floating text popup (damage numbers, status msgs, etc.)
+  _spawnFloatingText(wx, wy, text, color = "#ff4444", fontSize = "20px") {
+    const t = this.scene.add.text(wx, wy, text, {
+      fontSize,
+      color,
+      stroke: "#000000",
+      strokeThickness: 3,
+      fontStyle: "bold",
+    }).setOrigin(0.5).setDepth(60);
+
+    this.scene.tweens.add({
+      targets: t,
+      y: wy - 55,
+      alpha: 0,
+      duration: 750,
+      ease: "Power2",
+      onComplete: () => t.destroy(),
+    });
+  }
+
+  // Instant kill
   captureAt(x, y) {
     const target = this.pieces[this.key(x, y)];
     if (!target || !target.isEnemy) return false;

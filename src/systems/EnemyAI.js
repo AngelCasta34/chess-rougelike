@@ -1,5 +1,4 @@
-// EnemyAI.js – movement logic for all chess piece types
-
+// EnemyAI.js – logic for enemy move generation and selection
 function taxicab(ax, ay, bx, by) {
   return Math.abs(ax - bx) + Math.abs(ay - by);
 }
