@@ -757,10 +757,13 @@ export default class GameScene extends Phaser.Scene {
 
   drawHand(n = 3) {
     this.hand = [];
+    this.handSlots = [];
+    this._iidCounter = (this._iidCounter ?? 0);
     for (let i = 0; i < n; i++) {
       this.resetDrawPileIfNeeded();
       if (this.drawPile.length === 0) break;
       this.hand.push(this.drawPile.pop());
+      this.handSlots.push(this._iidCounter++);
     }
   }
 

@@ -140,7 +140,8 @@ export default class CardSystem {
       const actualIndex   = offset + vi;
       const x             = firstCardX + vi * (cardW + cardGap);
 
-      const alreadyPlayed = scene._playedThisTurn?.has(cardId) ?? false;
+      const slotIid       = scene.handSlots?.[actualIndex] ?? null;
+      const alreadyPlayed = slotIid !== null && (scene._playedThisTurn?.has(slotIid) ?? false);
       const canAfford     = scene.energy >= card.cost;
       const canPlay       = canAfford && !alreadyPlayed;
       const fill          = canPlay ? 0x1e1e2e : 0x141420;
@@ -176,10 +177,11 @@ export default class CardSystem {
         if (scene.inReward || scene.isGameOver) return;
         if (!scene.isPlayerTurn) return;
         if (scene.energy < card.cost) return;
-        if (scene._playedThisTurn?.has(cardId)) return;
+        const iid = scene.handSlots?.[actualIndex] ?? null;
+        if (iid !== null && scene._playedThisTurn?.has(iid)) return;
 
         scene._playedThisTurn ??= new Set();
-        scene._playedThisTurn.add(cardId);
+        if (iid !== null) scene._playedThisTurn.add(iid);
 
         scene.energy -= card.cost;
         scene.updateEnergyUI();
@@ -187,6 +189,7 @@ export default class CardSystem {
         card.apply(scene);
 
         scene.hand.splice(actualIndex, 1);
+        scene.handSlots?.splice(actualIndex, 1);
         scene.discardPile.push(cardId);
 
         // Clamp offset if last card in window was removed

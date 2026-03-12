@@ -2,6 +2,10 @@
 
 https://angelcasta34.github.io/chess-rougelike/
 
+# Play Tester Survey
+
+https://docs.google.com/forms/d/e/1FAIpQLSe4G8WCs27SQc3Bu50jtF_JH7pfkVouLlkL9knlEkIuvExk5Q/viewform?usp=publish-editor 
+
 A roguelike deckbuilder built with Phaser 3 where you play as a King piece navigating procedurally generated chess encounters. Each run is unique — enemy waves, card rewards, board layouts, and room sequences are all generated at runtime.
 
 ---

@@ -359,10 +359,11 @@ export default class Board {
       }
     }
 
-    // Enemy spawn rows are always clear
+    // Enemy spawn rows are always clear (rows 0–2 so enemies always have reachable adjacent tiles)
     for (let x = 0; x < this.gridSize; x++) {
       safeZones.add(this.key(x, 0));
       safeZones.add(this.key(x, 1));
+      safeZones.add(this.key(x, 2));
     }
 
     const wallCount = Math.min(6 + floor * 2, 22);

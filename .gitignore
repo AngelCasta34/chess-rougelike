@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Root assets folder (assets live in public/assets/)
+assets/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
