@@ -1,6 +1,6 @@
 # Chess Roguelike
 
-https://angelcasta34.github.io/chess-rougelike/
+# Playable Link:  https://angelcasta34.github.io/chess-rougelike/
 
 # Play Tester Survey
 

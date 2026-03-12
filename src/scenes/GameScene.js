@@ -1085,7 +1085,7 @@ export default class GameScene extends Phaser.Scene {
       this.hpBarFill.setScale(pct, 1).setFillStyle(color);
     }
   }
-  updateShieldUI()     { this.shieldText?.setText(`SHIELD  ${this.shield}`); }
+  updateShieldUI()     { this.shield = Math.min(this.shield, 15); this.shieldText?.setText(`SHIELD  ${this.shield}`); }
   updateFloorUI()      { this.floorText?.setText(`FLOOR  ${this.floor}`); }
   updateEnemyCountUI() { this.enemyCountText?.setText(`ENEMIES  ${this.board.enemies.length}`); }
   updateGoldUI()       { this.goldText?.setText(`GOLD  ${this.gold}g`); }

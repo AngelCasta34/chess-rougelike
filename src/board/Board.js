@@ -389,9 +389,10 @@ export default class Board {
         if (dx === 0 && dy === 0) continue;
         const nx = x + dx;
         const ny = y + dy;
-        if (!this.inBounds(nx, ny) || this.isWall(nx, ny)) continue;
+        if (!this.inBounds(nx, ny)) continue;
         const target = this.pieces[this.key(nx, ny)];
-        if (!target)           moves.push({ x: nx, y: ny });
+        if (this.isWall(nx, ny) && !target) continue; // wall with no enemy = blocked
+        if (!target)             moves.push({ x: nx, y: ny });
         else if (target.isEnemy) moves.push({ x: nx, y: ny, capture: true, enemy: target });
       }
     }
