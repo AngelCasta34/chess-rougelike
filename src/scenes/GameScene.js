@@ -893,9 +893,10 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.updateEnemyCountUI();
+    this.checkWaveCleared();
   }
 
-  // Mini deck panel 
+  // Mini deck panel
   createDeckPanel() {
     const RC = { Common: "#ffffff", Uncommon: "#44ff88", Rare: "#4499ff", Epic: "#cc44ff", Legendary: "#ff8800" };
     this._deckPanelRC = RC;
