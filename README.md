@@ -6,7 +6,7 @@
 
 https://docs.google.com/forms/d/e/1FAIpQLSe4G8WCs27SQc3Bu50jtF_JH7pfkVouLlkL9knlEkIuvExk5Q/viewform?usp=publish-editor 
 
-A roguelike deckbuilder built with Phaser 3 where you play as a King piece navigating procedurally generated chess encounters. Each run is unique — enemy waves, card rewards, board layouts, and room sequences are all generated at runtime.
+A roguelike deckbuilder built with Phaser 3 where you play as a King piece navigating procedurally generated chess encounters. Each run is unique, enemy waves, card rewards, board layouts, and room sequences are all generated at runtime.
 
 ---
 
@@ -28,7 +28,8 @@ Then open `http://localhost:5173` in your browser.
 - **Scroll through your hand** with the mouse wheel or the ◀ / ▶ arrow buttons at the bottom
 - **SPACE or END TURN button** to end your turn and let enemies move
 - Clear all enemies to advance — pick a new room, earn a card reward
-- Survive as many floors as possible
+- Press **ESC** or click **≡** to open the pause menu at any time
+- Survive all 20 floors and defeat the final boss to win
 
 ---
 
@@ -40,21 +41,53 @@ The game uses four interconnected generative systems to ensure every run feels d
 
 ### 1. Loot Table — Card Reward Generation
 **File:** `src/generators/LootTable.js`
+**Original Tool:** [CMPM147 Loot Table Generator](https://github.com/mtang44/CMPM147-Loot-Table-Generator/tree/main) (C# / Unity)
 
-This is a direct JavaScript port of the **C# LootChest weighted rarity algorithm** from the CMPM147 Loot Table Generator tool.
+This system is a direct JavaScript port of the **C# LootChest weighted rarity algorithm** from the CMPM147 Loot Table Generator. The core algorithm is preserved exactly, only the language and data structures changed to fit a Phaser 3 / JS context.
 
-#### The C# Algorithm (Original)
-The original C# `GenerateLoot` method works in 6 steps:
-1. Build a `Dictionary<string, List<gameItem>>` organizing items by rarity (`insertCustomLootTable`)
-2. Calculate the weighted sum of all rarities (`insertCustomRarities`)
-3. Roll a random number from 0 to `weightedSum`
-4. Walk through rarities subtracting each weight — the first rarity that drives the roll below 0 is selected
-5. Track how many items of each rarity were selected
-6. Pick a random item from that rarity's item list
+---
 
-#### The Implementation
+#### Original C# Algorithm (`LootChest.cs`)
+
+The original `GenerateLoot()` method works in 6 steps:
+
+1. **`insertCustomLootTable()`** — Builds a `Dictionary<string, List<gameItem>>` organizing items by rarity
+2. **`insertCustomRarities()`** — Calculates the weighted sum of all rarities
+3. Roll `rand.Next(0, weightedSum)`
+4. Walk through rarities subtracting each weight — first rarity that drives the roll below 0 is selected
+5. Retrieve the item list for that rarity
+6. Pick a random item: `itemList[rand.Next(0, itemList.Count)]`
+
+Original C# rarity weights: `Rarity_Weights = {55, 30, 15, 6, 1}`
+
+```csharp
+// Original C# core loop (GenerateLoot)
+foreach (KeyValuePair<string, int> rarity in rarityDictionary) {
+    roll -= rarity.Value;
+    if (roll < 0) {
+        selectedRarity = rarity.Key;
+        break;
+    }
+}
+selectedItem = itemList[rand.Next(0, itemList.Count)];
+```
+
+---
+
+#### JavaScript Port (`src/generators/LootTable.js`)
+
+Each step maps directly to the C# original:
+
+| C# Method | JS Equivalent | What it does |
+| --- | --- | --- |
+| `insertCustomLootTable()` | `_buildRarityMap(candidates)` | Groups cards into a map by rarity |
+| `insertCustomRarities()` | weight sum in `_rollRarity()` | Sums all weights |
+| `rand.Next(0, weightedSum)` | `Math.floor(Math.random() * weightedSum)` | Random roll |
+| Subtraction loop | `roll -= weight; if (roll < 0)` | Selects winning rarity |
+| `itemList[rand.Next(...)]` | `pool[Math.floor(Math.random() * pool.length)]` | Picks random card |
+
 ```js
-// Step 1 — build rarity map
+// Step 1 — mirrors insertCustomLootTable()
 _buildRarityMap(candidates) {
   const map = {};
   for (const card of candidates) {
@@ -64,45 +97,54 @@ _buildRarityMap(candidates) {
   return map;
 }
 
-// Steps 2–4 — weighted rarity roll
+// Steps 2–4 — mirrors insertCustomRarities() + GenerateLoot() subtraction loop
 _rollRarity(weights) {
   let weightedSum = 0;
   for (const w of Object.values(weights)) weightedSum += w;
 
   let roll = Math.floor(Math.random() * weightedSum);
   for (const [rarity, weight] of Object.entries(weights)) {
-    roll -= weight;           // subtract each weight
-    if (roll < 0) return rarity;  // first negative = winner
+    roll -= weight;
+    if (roll < 0) return rarity;
   }
 }
 
-// Steps 5–6 — pick item from selected rarity's pool
+// Steps 5–6 — pick card from winning rarity's pool
 drawOptions(tableId, count, opts) {
-  const rarityMap = this._buildRarityMap(candidates);  // step 1
-  const rarity    = this._rollRarity(weights);          // steps 2–4
-  const pool      = rarityMap[rarity];                  // step 5
+  const rarityMap = this._buildRarityMap(candidates);   // step 1
+  const rarity    = this._rollRarity(weights);           // steps 2–4
+  const pool      = rarityMap[rarity];                   // step 5
   const card      = pool[Math.floor(Math.random() * pool.length)]; // step 6
 }
 ```
 
-#### Rarity Weights
-Matching the C# default `Rarity_Weights = {55, 30, 15, 6, 1}`:
+---
 
-| Rarity    | Fight Room | Elite Room |
-|-----------|-----------|------------|
-| Common    | 55        | 25         |
-| Uncommon  | 30        | 35         |
-| Rare      | 15        | 25         |
-| Epic      | 6         | 12         |
-| Legendary | 1         | 3          |
+#### Rarity Weights
+
+Matching the C# default `Rarity_Weights = {55, 30, 15, 6, 1}`, with a second table added for elite/boss rooms:
+
+| Rarity    | Fight Room (`reward_fight`) | Elite Room (`reward_elite`) |
+|-----------|-----------------------------|-----------------------------|
+| Common    | 55                          | 25                          |
+| Uncommon  | 30                          | 35                          |
+| Rare      | 15                          | 25                          |
+| Epic      | 6                           | 12                          |
+| Legendary | 1                           | 3                           |
+
+---
 
 #### Extensions Beyond the Base Tool
-- **Two loot tables**: `reward_fight` (default weights) and `reward_elite` (skewed toward higher rarities)
-- **Pity system**: If no Rare+ card has appeared in N rooms, Rare/Epic/Legendary weights increase each draw
-- **Tag filtering**: Rewards can be biased toward specific tags (e.g. `"movement"`, `"defense"`) before the rarity roll — falls back to the full pool if no tagged cards exist for the rolled rarity
+
+The original C# tool generates loot from a static CSV. This port adds game-specific extensions while keeping the core algorithm intact:
+
+- **Two loot tables**: `reward_fight` (default weights) and `reward_elite` (skewed toward higher rarities for boss/elite rooms)
+- **Pity system**: If no Rare+ card appears in N consecutive rooms, Rare/Epic/Legendary weights increase proportionally each draw
+- **Tag filtering**: Rewards can be pre-filtered by tag (`"movement"`, `"defense"`) before the rarity roll — falls back to the full pool if no tagged cards exist for the rolled rarity
 - **Duplicate prevention**: The same card won't appear twice in the same reward screen when the pool is large enough
 
 #### Where It's Called
+
 ```js
 // GameScene.js — onVictory(), after clearing a room
 const options = [
@@ -215,6 +257,7 @@ src/
     EnemyFactory.js           # Budget-based enemy stat generation
     LootTable.js              # Weighted rarity card reward generation (C# port)
   scenes/
+    MenuScene.js              # Title screen, How to Play overlay, menu music
     GameScene.js              # Main game loop, UI, roguelike flow
   systems/
     EnemyAI.js                # Chess movement logic for all 5 piece types
@@ -330,16 +373,11 @@ Boss encounter triggered every 5th floor — Queen piece with elevated HP and AT
 - Full roguelike progression (floor counter, room branching, game over screen)
 - Full-window canvas scaling (Phaser Scale.FIT)
 - Sidebar deck panel showing current hand
+- Title screen with animated background and How to Play overlay
+- In-game pause menu (ESC or ≡) with Resume, Restart Run, and Main Menu
+- Win condition: defeat the Floor 20 boss to trigger a Victory screen
+- Playtest survey distributed to testers
 - Deployed to GitHub Pages
-
-### To Complete Before Showcase
-
-- [ ] Fix enemy displacement silent-destruction fallback
-- [ ] Add status effect visual popups (floating text on apply)
-- [ ] Validate and harden shop card removal
-- [ ] Tune floor 1–5 difficulty curve based on playtesting
-- [ ] Add a win condition (e.g. defeat the Queen boss on floor 10)
-- [x] Screenshots / short video of 5+ generated runs for submission
 
 ---
 

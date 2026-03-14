@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import MenuScene from "./scenes/MenuScene.js";
 import GameScene from "./scenes/GameScene.js";
 
 new Phaser.Game({
@@ -12,5 +13,5 @@ new Phaser.Game({
     width: 1050,
     height: 750,
   },
-  scene: [GameScene],
+  scene: [MenuScene, GameScene],
 });

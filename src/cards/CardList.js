@@ -23,6 +23,7 @@ const CardList = [
     apply(scene) {
       scene.movesRemaining += 1;
       scene.updateMovesUI();
+      scene.showLegalMovesForKing();
     },
   },
 
@@ -36,6 +37,7 @@ const CardList = [
     apply(scene) {
       scene.movesRemaining += 2;
       scene.updateMovesUI();
+      scene.showLegalMovesForKing();
     },
   },
 

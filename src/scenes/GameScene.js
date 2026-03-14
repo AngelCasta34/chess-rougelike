@@ -198,6 +198,22 @@ export default class GameScene extends Phaser.Scene {
       this.turnManager.endPlayerTurn();
     });
 
+    this.input.keyboard.on("keydown-ESC", () => {
+      if (this.isGameOver) return;
+      this._pauseOpen ? this._closePauseMenu() : this._showPauseMenu();
+    });
+
+    // Pause / menu button (top-right of sidebar)
+    const pauseBtn = this.add.text(1032, 14, "≡", {
+      fontSize: "26px", color: "#555566",
+    }).setOrigin(1, 0).setInteractive({ useHandCursor: true }).setDepth(5);
+    pauseBtn.on("pointerover", () => pauseBtn.setColor("#c8a96e"));
+    pauseBtn.on("pointerout",  () => pauseBtn.setColor("#555566"));
+    pauseBtn.on("pointerdown", () => {
+      if (this.isGameOver) return;
+      this._pauseOpen ? this._closePauseMenu() : this._showPauseMenu();
+    });
+
     // VIEW DECK button
     const deckBtn = this.add.rectangle(886, 386, 188, 42, 0x0e0e22)
       .setStrokeStyle(2, 0x3355aa).setInteractive();
@@ -434,6 +450,12 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.shake(180, 0.008);
     // Fade back to dungeon music after a boss kill
     if (this.isBossFloor()) this._fadeToMusic("music_dungeon");
+
+    // Floor 20 boss = true ending
+    if (this.floor === 20 && this.isBossFloor()) {
+      this._showFloorClearSplash(() => this._showWinScreen());
+      return;
+    }
 
     // Floor clear splash, then proceed to reward
     this._showFloorClearSplash(() => {
@@ -1010,6 +1032,112 @@ export default class GameScene extends Phaser.Scene {
     this._deckViewerObjs.push(closeBtn, closeLbl);
   }
 
+  // Win Screen
+  _showWinScreen() {
+    this.isGameOver = true;
+    const W = 1050, H = 750;
+
+    if (this._musicTrack) {
+      this.tweens.add({
+        targets: this._musicTrack, volume: 0, duration: 1500,
+        onComplete: () => { this._musicTrack?.stop(); },
+      });
+    }
+
+    this.cameras.main.fadeIn(400, 0, 0, 0);
+
+    this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.88).setDepth(200);
+
+    // Gold crown
+    this.add.text(W / 2, 110, "♛", { fontSize: "72px", color: "#c8a96e" }).setOrigin(0.5).setDepth(201);
+
+    this.add.text(W / 2, 195, "VICTORY", {
+      fontSize: "64px", fontStyle: "bold", color: "#c8a96e",
+      stroke: "#000000", strokeThickness: 6,
+    }).setOrigin(0.5).setDepth(201);
+
+    this.add.text(W / 2, 268, "The board is yours.", {
+      fontSize: "20px", color: "#888888", fontStyle: "italic",
+    }).setOrigin(0.5).setDepth(201);
+
+    // Divider
+    const g = this.add.graphics().setDepth(201);
+    g.lineStyle(1, 0xc8a96e, 0.4);
+    g.lineBetween(W / 2 - 220, 300, W / 2 + 220, 300);
+
+    this.add.text(W / 2, 335,
+      `Floors cleared: 20     Kills: ${this.killCount}     Gold earned: ${this.gold}g\nFinal deck: ${this.runDeck.length} cards`,
+      { fontSize: "18px", color: "#aaaaaa", align: "center" }
+    ).setOrigin(0.5, 0).setDepth(201);
+
+    const menuBtn = this.add.rectangle(W / 2, 470, 240, 58, 0x1a1208)
+      .setStrokeStyle(2, 0xc8a96e).setInteractive().setDepth(201);
+    this.add.text(W / 2, 470, "MAIN MENU", {
+      fontSize: "22px", color: "#c8a96e",
+    }).setOrigin(0.5).setDepth(202);
+    menuBtn.on("pointerover", () => menuBtn.setFillStyle(0x2e200e));
+    menuBtn.on("pointerout",  () => menuBtn.setFillStyle(0x1a1208));
+    menuBtn.on("pointerdown", () => location.reload());
+  }
+
+  // Pause Menu
+  _showPauseMenu() {
+    if (this._pauseOpen) return;
+    this._pauseOpen = true;
+    this._pauseObjs = [];
+
+    const W = 1050, H = 750;
+    const depth = 150;
+
+    const bg = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.72).setDepth(depth).setInteractive();
+    this._pauseObjs.push(bg);
+
+    const panel = this.add.rectangle(W / 2, H / 2, 340, 400, 0x08080f, 0.97)
+      .setStrokeStyle(2, 0xc8a96e).setDepth(depth + 1);
+    this._pauseObjs.push(panel);
+
+    const title = this.add.text(W / 2, H / 2 - 160, "PAUSED", {
+      fontSize: "36px", fontStyle: "bold", color: "#c8a96e",
+      stroke: "#000000", strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(depth + 2);
+    this._pauseObjs.push(title);
+
+    const div = this.add.graphics().setDepth(depth + 2);
+    div.lineStyle(1, 0xc8a96e, 0.35);
+    div.lineBetween(W / 2 - 110, H / 2 - 120, W / 2 + 110, H / 2 - 120);
+    this._pauseObjs.push(div);
+
+    const addBtn = (label, yOffset, color, hoverColor, cb) => {
+      const btn = this.add.text(W / 2, H / 2 + yOffset, label, {
+        fontSize: "22px", color,
+        stroke: "#000000", strokeThickness: 3,
+      }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(depth + 2);
+      btn.on("pointerover", () => { btn.setColor(hoverColor); this.tweens.add({ targets: btn, scaleX: 1.06, scaleY: 1.06, duration: 100 }); });
+      btn.on("pointerout",  () => { btn.setColor(color);      this.tweens.add({ targets: btn, scaleX: 1,    scaleY: 1,    duration: 100 }); });
+      btn.on("pointerdown", cb);
+      this._pauseObjs.push(btn);
+    };
+
+    addBtn("▶  RESUME",        -65,  "#aaaaaa", "#ffffff", () => this._closePauseMenu());
+    addBtn("↺  RESTART RUN",     5,  "#888898", "#ffaa44", () => location.reload());
+    addBtn("⌂  MAIN MENU",      75,  "#888898", "#88aaff", () => {
+      if (this._musicTrack) { this._musicTrack.stop(); this._musicTrack.destroy(); this._musicTrack = null; }
+      this.scene.start("MenuScene");
+    });
+
+    const esc = this.add.text(W / 2, H / 2 + 165, "ESC to close", {
+      fontSize: "13px", color: "#333344",
+    }).setOrigin(0.5).setDepth(depth + 2);
+    this._pauseObjs.push(esc);
+  }
+
+  _closePauseMenu() {
+    if (!this._pauseOpen) return;
+    this._pauseOpen = false;
+    this._pauseObjs?.forEach((o) => o.destroy());
+    this._pauseObjs = [];
+  }
+
   // Game Over
   gameOver() {
     this.isGameOver = true;
@@ -1039,7 +1167,7 @@ export default class GameScene extends Phaser.Scene {
     this.add.text(373, 388, "PLAY AGAIN", { fontSize: "22px", color: "#ffffff" }).setDepth(202);
     restartBtn.on("pointerover",  () => restartBtn.setFillStyle(0x666666));
     restartBtn.on("pointerout",   () => restartBtn.setFillStyle(0x444444));
-    restartBtn.on("pointerdown",  () => this.scene.restart());
+    restartBtn.on("pointerdown", () => location.reload());
 
     this.add.existing(bg);
     this.add.existing(title);
